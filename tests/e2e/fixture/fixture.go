@@ -39,7 +39,7 @@ func EnsureDestinationNamespaceExists(ctx context.Context, namespaceParam string
 		return fmt.Errorf("unable to retrieve valid Kubernetes context: %w", err)
 	}
 
-	k8sClient, err := GetKubeClient(config)
+	k8sClient, _, err := GetKubeClient(config)
 	if err != nil {
 		return err
 	}
@@ -97,50 +97,50 @@ func DeleteNamespace(ctx context.Context, namespaceParam string, k8sClient clien
 	return nil
 }
 
-func GetE2ETestKubeClient() (client.Client, error) {
+func GetE2ETestKubeClient() (client.Client, *runtime.Scheme, error) {
 	config, err := GetSystemKubeConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	k8sClient, err := GetKubeClient(config)
+	k8sClient, scheme, err := GetKubeClient(config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return k8sClient, nil
+	return k8sClient, scheme, nil
 }
 
 // GetKubeClient returns a controller-runtime Client for accessing K8s API resources used by the controller.
-func GetKubeClient(config *rest.Config) (client.Client, error) {
+func GetKubeClient(config *rest.Config) (client.Client, *runtime.Scheme, error) {
 
 	scheme := runtime.NewScheme()
 
 	if err := rolloutsmanagerv1alpha1.AddToScheme(scheme); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := corev1.AddToScheme(scheme); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := apps.AddToScheme(scheme); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := rbacv1.AddToScheme(scheme); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := admissionv1.AddToScheme(scheme); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	k8sClient, err := client.New(config, client.Options{Scheme: scheme})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return k8sClient, nil
+	return k8sClient, scheme, nil
 
 }
 

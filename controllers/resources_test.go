@@ -15,10 +15,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func TestReconcileRolloutManager_verifyRolloutsResources(t *testing.T) {
+func TestReconcileRolloutManager_verifyRolloutsResources_namespaceScoped(t *testing.T) {
 
 	ctx := context.Background()
 	a := makeTestRolloutManager()
+
+	// make it namespace scoped
+	a.Spec.NamespaceScoped = true
 
 	r := makeTestReconciler(t, a)
 	assert.NoError(t, createNamespace(r, a.Namespace))
@@ -57,6 +60,88 @@ func TestReconcileRolloutManager_verifyRolloutsResources(t *testing.T) {
 		Name:      DefaultArgoRolloutsResourceName,
 		Namespace: testNamespace,
 	}, rolebinding); err != nil {
+		t.Fatalf("failed to find the rollouts rolebinding: %#v\n", err)
+	}
+
+	aggregateToAdminClusterRole := &rbacv1.ClusterRole{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name: "argo-rollouts-aggregate-to-admin",
+	}, aggregateToAdminClusterRole); err != nil {
+		t.Fatalf("failed to find the aggregateToAdmin ClusterRole: %#v\n", err)
+	}
+
+	aggregateToEditClusterRole := &rbacv1.ClusterRole{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name: "argo-rollouts-aggregate-to-edit",
+	}, aggregateToEditClusterRole); err != nil {
+		t.Fatalf("failed to find the aggregateToEdit ClusterRole: %#v\n", err)
+	}
+
+	aggregateToViewClusterRole := &rbacv1.ClusterRole{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name: "argo-rollouts-aggregate-to-view",
+	}, aggregateToViewClusterRole); err != nil {
+		t.Fatalf("failed to find the aggregateToView ClusterRole: %#v\n", err)
+	}
+
+	service := &corev1.Service{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name:      DefaultArgoRolloutsMetricsServiceName,
+		Namespace: a.Namespace,
+	}, service); err != nil {
+		t.Fatalf("failed to find the rollouts metrics service: %#v\n", err)
+	}
+
+	secret := &corev1.Secret{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name:      DefaultRolloutsNotificationSecretName,
+		Namespace: a.Namespace,
+	}, secret); err != nil {
+		t.Fatalf("failed to find the rollouts secret: %#v\n", err)
+	}
+}
+
+func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped(t *testing.T) {
+
+	ctx := context.Background()
+	a := makeTestRolloutManager()
+
+	r := makeTestReconciler(t, a)
+	assert.NoError(t, createNamespace(r, a.Namespace))
+
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      a.Name,
+			Namespace: a.Namespace,
+		},
+	}
+
+	res, err := r.Reconcile(ctx, req)
+	assert.NoError(t, err)
+	if res.Requeue {
+		t.Fatal("reconcile requeued request")
+	}
+
+	sa := &corev1.ServiceAccount{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name:      DefaultArgoRolloutsResourceName,
+		Namespace: testNamespace,
+	}, sa); err != nil {
+		t.Fatalf("failed to find the rollouts serviceaccount: %#v\n", err)
+	}
+
+	clusterRole := &rbacv1.ClusterRole{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name:      DefaultArgoRolloutsResourceName,
+		Namespace: testNamespace,
+	}, clusterRole); err != nil {
+		t.Fatalf("failed to find the rollouts role: %#v\n", err)
+	}
+
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+	if err = r.Client.Get(ctx, types.NamespacedName{
+		Name: DefaultArgoRolloutsResourceName,
+	}, clusterRoleBinding); err != nil {
 		t.Fatalf("failed to find the rollouts rolebinding: %#v\n", err)
 	}
 

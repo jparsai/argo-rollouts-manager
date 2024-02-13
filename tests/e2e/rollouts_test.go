@@ -36,7 +36,7 @@ var _ = Describe("RolloutManager tests", func() {
 				Expect(fixture.EnsureCleanSlate()).To(Succeed())
 
 				var err error
-				k8sClient, err = fixture.GetE2ETestKubeClient()
+				k8sClient, _, err = fixture.GetE2ETestKubeClient()
 				Expect(err).ToNot(HaveOccurred())
 				ctx = context.Background()
 
