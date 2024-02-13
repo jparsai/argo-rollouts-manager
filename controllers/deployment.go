@@ -204,7 +204,9 @@ func getRolloutsContainerImage(cr *rolloutsmanagerv1alpha1.RolloutManager) strin
 func getRolloutsCommandArgs(cr *rolloutsmanagerv1alpha1.RolloutManager) []string {
 	args := make([]string, 0)
 
-	args = append(args, "--namespaced")
+	if cr.Spec.NamespaceScoped {
+		args = append(args, "--namespaced")
+	}
 
 	extraArgs := cr.Spec.ExtraCommandArgs
 	err := isMergable(extraArgs, args)

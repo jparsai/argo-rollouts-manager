@@ -81,6 +81,42 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRole(ctx context.Context, cr
 	return role, nil
 }
 
+// Reconciles argo-rollouts clusterRole.
+func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) (*rbacv1.ClusterRole, error) {
+
+	expectedPolicyRules := GetPolicyRules()
+
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DefaultArgoRolloutsResourceName,
+			Namespace: cr.Namespace,
+		},
+	}
+	setRolloutsLabels(&clusterRole.ObjectMeta)
+
+	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to reconcile the clusterRole for the service account associated with %s : %s", clusterRole.Name, err)
+		}
+
+		if err = controllerutil.SetControllerReference(cr, clusterRole, r.Scheme); err != nil {
+			return nil, err
+		}
+
+		log.Info(fmt.Sprintf("Creating clusterRole %s", clusterRole.Name))
+		clusterRole.Rules = expectedPolicyRules
+		return clusterRole, r.Client.Create(ctx, clusterRole)
+	}
+
+	// Reconcile if the clusterRole already exists and modified.
+	if !reflect.DeepEqual(clusterRole.Rules, expectedPolicyRules) {
+		clusterRole.Rules = expectedPolicyRules
+		return clusterRole, r.Client.Update(ctx, clusterRole)
+	}
+
+	return clusterRole, nil
+}
+
 // Reconcile rollouts rolebinding.
 func (r *RolloutManagerReconciler) reconcileRolloutsRoleBinding(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager, role *rbacv1.Role, sa *corev1.ServiceAccount) error {
 	expectedRoleBinding := &rbacv1.RoleBinding{
@@ -133,6 +169,55 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRoleBinding(ctx context.Cont
 	return nil
 }
 
+// Reconcile rollouts clusterRoleBinding.
+func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager, clusterRole *rbacv1.ClusterRole, sa *corev1.ServiceAccount) error {
+
+	expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DefaultArgoRolloutsResourceName,
+			Namespace: cr.Namespace,
+		},
+	}
+	setRolloutsLabels(&expectedClusterRoleBinding.ObjectMeta)
+
+	expectedClusterRoleBinding.RoleRef = rbacv1.RoleRef{
+		APIGroup: rbacv1.GroupName,
+		Kind:     "ClusterRole",
+		Name:     clusterRole.Name,
+	}
+
+	expectedClusterRoleBinding.Subjects = []rbacv1.Subject{
+		{
+			Kind:      rbacv1.ServiceAccountKind,
+			Name:      sa.Name,
+			Namespace: sa.Namespace,
+		},
+	}
+
+	actualClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+
+	// Fetch the clusterRoleBinding if exists and store that in actualClusterRoleBinding.
+	if err := fetchObject(ctx, r.Client, expectedClusterRoleBinding.Namespace, expectedClusterRoleBinding.Name, actualClusterRoleBinding); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get the clusterRoleBinding associated with %s : %s", expectedClusterRoleBinding.Name, err)
+		}
+
+		log.Info(fmt.Sprintf("Creating clusterRoleBinding %s", expectedClusterRoleBinding.Name))
+		return r.Client.Create(ctx, expectedClusterRoleBinding)
+	}
+
+	// Reconcile if the clusterRoleBinding already exists and modified.
+	if !reflect.DeepEqual(expectedClusterRoleBinding.Subjects, actualClusterRoleBinding.Subjects) {
+		actualClusterRoleBinding.Subjects = expectedClusterRoleBinding.Subjects
+
+		if err := r.Client.Update(ctx, actualClusterRoleBinding); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // Reconciles aggregate-to-admin ClusterRole.
 func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToAdminClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) error {
 
@@ -148,7 +233,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToAdminClusterRole(
 	}
 	setRolloutsAggregatedClusterRoleLabels(&clusterRole.ObjectMeta, name, aggregationType)
 
-	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
+	if err := fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to reconcile the aggregated ClusterRole %s : %s", clusterRole.Name, err)
 		}
@@ -182,7 +267,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToEditClusterRole(c
 	}
 	setRolloutsAggregatedClusterRoleLabels(&clusterRole.ObjectMeta, name, aggregationType)
 
-	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
+	if err := fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to reconcile the aggregated ClusterRole %s : %s", clusterRole.Name, err)
 		}
@@ -216,7 +301,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToViewClusterRole(c
 	}
 	setRolloutsAggregatedClusterRoleLabels(&clusterRole.ObjectMeta, name, aggregationType)
 
-	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
+	if err := fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to reconcile the aggregated ClusterRole %s : %s", clusterRole.Name, err)
 		}
