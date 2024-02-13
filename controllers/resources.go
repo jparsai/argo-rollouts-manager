@@ -89,13 +89,12 @@ func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Cont
 
 	clusterRole := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      DefaultArgoRolloutsResourceName,
-			Namespace: cr.Namespace,
+			Name: DefaultArgoRolloutsResourceName,
 		},
 	}
 	setRolloutsLabels(&clusterRole.ObjectMeta)
 
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: clusterRole.Name, Namespace: clusterRole.Namespace}, clusterRole); err != nil {
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: clusterRole.Name}, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to reconcile the clusterRole for the service account associated with %s : %s", clusterRole.Name, err)
 		}
