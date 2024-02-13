@@ -17,6 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+	"sort"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -40,6 +43,9 @@ type RolloutManagerSpec struct {
 
 	// Version defines Argo Rollouts controller tag (optional)
 	Version string `json:"version,omitempty"`
+
+	// NamespaceScoped lets you specify if rollouts manager has to watch a namespace or the whole cluster
+	NamespaceScoped bool `json:"namespaceScoped,omitempty"`
 }
 
 // ArgoRolloutsNodePlacementSpec is used to specify NodeSelector and Tolerations for Rollouts workloads
@@ -64,6 +70,9 @@ type RolloutManagerStatus struct {
 	// Available: All of the resources for the RolloutManager are ready.
 	// Unknown: The state of the RolloutManager phase could not be obtained.
 	Phase RolloutControllerPhase `json:"phase,omitempty"`
+
+	// Conditions is an array of the RolloutManager's status conditions
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type RolloutControllerPhase string
@@ -73,6 +82,17 @@ const (
 	PhasePending   RolloutControllerPhase = "Pending"
 	PhaseUnknown   RolloutControllerPhase = "Unknown"
 	PhaseFailure   RolloutControllerPhase = "Failure"
+)
+
+const (
+	RolloutManagerConditionTypeSuccess       = "Success"
+	RolloutManagerConditionTypeErrorOccurred = "ErrorOccurred"
+)
+
+const (
+	RolloutManagerReasonSuccess                             = "Success"
+	RolloutManagerReasonErrorOccurred                       = "ErrorOccurred"
+	RolloutManagerReasonMultipleClusterScopedRolloutManager = "MultipleClusterScopedRolloutManager"
 )
 
 //+kubebuilder:object:root=true
@@ -98,4 +118,41 @@ type RolloutManagerList struct {
 
 func init() {
 	SchemeBuilder.Register(&RolloutManager{}, &RolloutManagerList{})
+}
+
+// SetConditions updates the RolloutManager status conditions for a subset of evaluated types.
+// If the RolloutManager has a pre-existing condition of a type that is not in the evaluated list,
+// it will be preserved. If the RolloutManager has a pre-existing condition of a type, status, reason that
+// is in the evaluated list, but not in the incoming conditions list, it will be removed.
+func (status *RolloutManagerStatus) SetConditions(conditions []metav1.Condition) {
+	rmConditions := make([]metav1.Condition, 0)
+	now := metav1.Now()
+	for i := range conditions {
+		condition := conditions[i]
+		eci := findConditionIndex(status.Conditions, condition.Type)
+		if eci >= 0 && status.Conditions[eci].Message == condition.Message && status.Conditions[eci].Reason == condition.Reason && status.Conditions[eci].Status == condition.Status {
+			// If we already have a condition of this type, status and reason, only update the timestamp if something
+			// has changed.
+			rmConditions = append(rmConditions, status.Conditions[eci])
+		} else {
+			// Otherwise we use the new incoming condition with an updated timestamp:
+			condition.LastTransitionTime = now
+			rmConditions = append(rmConditions, condition)
+		}
+	}
+	sort.Slice(rmConditions, func(i, j int) bool {
+		left := rmConditions[i]
+		right := rmConditions[j]
+		return fmt.Sprintf("%s/%s/%s/%s/%v", left.Type, left.Message, left.Status, left.Reason, left.LastTransitionTime) < fmt.Sprintf("%s/%s/%s/%s/%v", right.Type, right.Message, right.Status, right.Reason, right.LastTransitionTime)
+	})
+	status.Conditions = rmConditions
+}
+
+func findConditionIndex(conditions []metav1.Condition, t string) int {
+	for i := range conditions {
+		if conditions[i].Type == t {
+			return i
+		}
+	}
+	return -1
 }

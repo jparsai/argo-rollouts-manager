@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	rolloutsmanagerv1alpha1 "github.com/argoproj-labs/argo-rollouts-manager/api/v1alpha1"
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -128,6 +130,108 @@ func isMergable(extraArgs []string, cmd []string) error {
 					return err
 				}
 			}
+		}
+	}
+	return nil
+}
+
+func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager, log logr.Logger) error {
+
+	rolloutManagerList := rolloutsmanagerv1alpha1.RolloutManagerList{}
+	if err := client.List(ctx, &rolloutManagerList); err != nil {
+		return fmt.Errorf("failed to get the list of RolloutManager CRs from cluster: %s", err)
+	}
+
+	// if there is only one rollout manager, then check if same is being reconciled, if yes then continue the reconciling process
+	if len(rolloutManagerList.Items) == 1 && rolloutManagerList.Items[0].Name == cr.Name && rolloutManagerList.Items[0].Namespace == cr.Namespace {
+		return nil
+	}
+
+	// if there are more than one rollout managers available, then check if any cluster scoped rollout manager exists,
+	// if yes then skip reconciliation of this CR, because only one cluster scoped or all namespace scoped rollout managers are supported
+	for _, rolloutManager := range rolloutManagerList.Items {
+
+		// if there is a cluster scoped rollout manager then skip reconciliation of this CR and set status to pending.
+		if !rolloutManager.Spec.NamespaceScoped {
+			cr.Status.Phase = rolloutsmanagerv1alpha1.PhasePending
+			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhasePending
+
+			if err := client.Status().Update(ctx, cr); err != nil {
+				return fmt.Errorf("error updating the RolloutManager CR status: %s", err)
+			}
+			return fmt.Errorf("With a cluster scoped RolloutManager, another RolloutManager is not supported")
+		}
+	}
+
+	// either there are no existing rollout managers or all are namespace scoped, so continue reconciliation of this CR
+	return nil
+}
+
+func doMultipleRolloutManagersExist(err error) bool {
+	return err.Error() == "With a cluster scoped RolloutManager, another RolloutManager is not supported"
+}
+
+func createCondition(conditionType string, status metav1.ConditionStatus, reason string, message string) *metav1.Condition {
+	return &metav1.Condition{
+		Type:    conditionType,
+		Reason:  reason,
+		Message: message,
+		Status:  status,
+	}
+}
+
+// insertOrUpdateConditionsInSlice is a generic function for inserting/updating metav1.Condition into a slice of []metav1.Condition
+func insertOrUpdateConditionsInSlice(newCondition metav1.Condition, existingConditions []metav1.Condition) (bool, []metav1.Condition) {
+
+	// Check if condition with same type is already set, if Yes then check if content is same,
+	// If content is not same update LastTransitionTime
+
+	index := -1
+	for i, Condition := range existingConditions {
+		if Condition.Type == newCondition.Type {
+			index = i
+			break
+		}
+	}
+
+	now := metav1.Now()
+
+	changed := false
+
+	if index == -1 {
+		newCondition.LastTransitionTime = now
+		existingConditions = append(existingConditions, newCondition)
+		changed = true
+
+	} else if existingConditions[index].Message != newCondition.Message ||
+		existingConditions[index].Reason != newCondition.Reason ||
+		existingConditions[index].Status != newCondition.Status {
+
+		newCondition.LastTransitionTime = now
+		existingConditions[index] = newCondition
+		changed = true
+	}
+
+	return changed, existingConditions
+
+}
+
+// updateStatusConditionOfRolloutManager calls SetCondition() with RolloutManager conditions
+func updateStatusConditionOfRolloutManager(ctx context.Context, newCondition metav1.Condition, rm *rolloutsmanagerv1alpha1.RolloutManager, k8sClient client.Client, log logr.Logger) error {
+
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(rm), rm); err != nil {
+		log.Error(err, "unable to fetch RolloutManager")
+		return nil
+	}
+
+	changed, newConditions := insertOrUpdateConditionsInSlice(newCondition, rm.Status.Conditions)
+
+	if changed {
+		rm.Status.Conditions = newConditions
+
+		if err := k8sClient.Status().Update(ctx, rm); err != nil {
+			log.Error(err, "unable to update RolloutManager status condition.")
+			return err
 		}
 	}
 	return nil

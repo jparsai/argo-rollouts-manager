@@ -11,6 +11,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -81,6 +82,43 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRole(ctx context.Context, cr
 	return role, nil
 }
 
+// Reconciles rollouts role.
+func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) (*rbacv1.ClusterRole, error) {
+
+	expectedPolicyRules := GetPolicyRules()
+
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DefaultArgoRolloutsResourceName,
+			Namespace: cr.Namespace,
+		},
+	}
+	setRolloutsLabels(&clusterRole.ObjectMeta)
+
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: clusterRole.Name, Namespace: clusterRole.Namespace}, clusterRole); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to reconcile the clusterRole for the service account associated with %s : %s", clusterRole.Name, err)
+		}
+
+		if err = controllerutil.SetControllerReference(cr, clusterRole, r.Scheme); err != nil {
+			return nil, err
+		}
+
+		log.Info(fmt.Sprintf("Creating clusterRole %s", clusterRole.Name))
+		clusterRole.Rules = expectedPolicyRules
+		err = r.Client.Create(ctx, clusterRole)
+		return clusterRole, err
+	}
+
+	// Reconcile if the clusterRole already exists and modified.
+	if !reflect.DeepEqual(clusterRole.Rules, expectedPolicyRules) {
+		clusterRole.Rules = expectedPolicyRules
+		return clusterRole, r.Client.Update(ctx, clusterRole)
+	}
+
+	return clusterRole, nil
+}
+
 // Reconcile rollouts rolebinding.
 func (r *RolloutManagerReconciler) reconcileRolloutsRoleBinding(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager, role *rbacv1.Role, sa *corev1.ServiceAccount) error {
 	expectedRoleBinding := &rbacv1.RoleBinding{
@@ -126,6 +164,57 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRoleBinding(ctx context.Cont
 		actualRoleBinding.Subjects = expectedRoleBinding.Subjects
 
 		if err := r.Client.Update(ctx, actualRoleBinding); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Reconcile rollouts clusterRolebinding.
+func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager, clusterRole *rbacv1.ClusterRole, sa *corev1.ServiceAccount) error {
+
+	expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: DefaultArgoRolloutsResourceName,
+		},
+	}
+	setRolloutsLabels(&expectedClusterRoleBinding.ObjectMeta)
+
+	expectedClusterRoleBinding.RoleRef = rbacv1.RoleRef{
+		APIGroup: rbacv1.GroupName,
+		Kind:     "ClusterRole",
+		Name:     clusterRole.Name,
+	}
+
+	expectedClusterRoleBinding.Subjects = []rbacv1.Subject{
+		{
+			Kind:      rbacv1.ServiceAccountKind,
+			Name:      sa.Name,
+			Namespace: sa.Namespace,
+		},
+	}
+
+	actualClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+
+	// Fetch the clusterRolebinding if exists and store that in actualClusterRoleBinding.
+
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: expectedClusterRoleBinding.Name}, actualClusterRoleBinding); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to get the clusterRolebinding associated with %s : %s", expectedClusterRoleBinding.Name, err)
+		}
+
+		log.Info(fmt.Sprintf("Creating clusterRolebinding %s", expectedClusterRoleBinding.Name))
+		err = r.Client.Create(ctx, expectedClusterRoleBinding)
+
+		return err
+	}
+
+	// Reconcile if the clusterRolebinding already exists and modified.
+	if !reflect.DeepEqual(expectedClusterRoleBinding.Subjects, actualClusterRoleBinding.Subjects) {
+		actualClusterRoleBinding.Subjects = expectedClusterRoleBinding.Subjects
+
+		if err := r.Client.Update(ctx, actualClusterRoleBinding); err != nil {
 			return err
 		}
 	}
