@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -15,114 +16,245 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-func TestReconcileRolloutManager_verifyRolloutsResources(t *testing.T) {
+func TestReconcileRollouts_ServiceAccount(t *testing.T) {
+	a := makeTestRolloutManager()
 
+	r := makeTestReconciler(t, a)
+	assert.NoError(t, createNamespace(r, a.Namespace))
+
+	_, err := r.reconcileRolloutsServiceAccount(context.Background(), a)
+	assert.NoError(t, err)
+}
+
+func TestReconcileRollouts_Role(t *testing.T) {
 	ctx := context.Background()
 	a := makeTestRolloutManager()
 
 	r := makeTestReconciler(t, a)
 	assert.NoError(t, createNamespace(r, a.Namespace))
 
-	req := reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name:      a.Name,
+	role, err := r.reconcileRolloutsRole(ctx, a)
+	assert.NoError(t, err)
+
+	// Modify Rules
+	role.Rules[0].Verbs = append(role.Rules[0].Verbs, "test")
+	assert.NoError(t, r.Client.Update(ctx, role))
+
+	// Reconciler should revert modifications
+	role, err = r.reconcileRolloutsRole(ctx, a)
+	assert.NoError(t, err)
+
+	if diff := cmp.Diff(role.Rules, GetPolicyRules()); diff != "" {
+		t.Fatalf("failed to reconcile role:\n%s", diff)
+	}
+}
+
+func TestReconcileRollouts_ClusterRole(t *testing.T) {
+	ctx := context.Background()
+	a := makeTestRolloutManager()
+
+	r := makeTestReconciler(t, a)
+	assert.NoError(t, createNamespace(r, a.Namespace))
+
+	clusterRole, err := r.reconcileRolloutsClusterRole(ctx, a)
+	assert.NoError(t, err)
+
+	// Modify Rules
+	clusterRole.Rules[0].Verbs = append(clusterRole.Rules[0].Verbs, "test")
+	assert.NoError(t, r.Client.Update(ctx, clusterRole))
+
+	// Reconciler should revert modifications
+	clusterRole, err = r.reconcileRolloutsClusterRole(ctx, a)
+	assert.NoError(t, err)
+	if diff := cmp.Diff(clusterRole.Rules, GetPolicyRules()); diff != "" {
+		t.Fatalf("failed to reconcile clusterRole:\n%s", diff)
+	}
+}
+
+func TestReconcileRolloutsRoleBinding(t *testing.T) {
+	ctx := context.Background()
+	a := makeTestRolloutManager()
+
+	r := makeTestReconciler(t, a)
+	assert.NoError(t, createNamespace(r, a.Namespace))
+
+	sa, err := r.reconcileRolloutsServiceAccount(ctx, a)
+	assert.NoError(t, err)
+
+	role, err := r.reconcileRolloutsRole(ctx, a)
+	assert.NoError(t, err)
+
+	assert.NoError(t, r.reconcileRolloutsRoleBinding(ctx, a, role, sa))
+
+	// Modify Subject
+	rb := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DefaultArgoRolloutsResourceName,
+			Namespace: a.Namespace,
+		},
+	}
+	assert.NoError(t, fetchObject(ctx, r.Client, a.Namespace, rb.Name, rb))
+
+	subTemp := rb.Subjects
+	rb.Subjects = append(rb.Subjects, rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: "test", Namespace: "test"})
+	assert.NoError(t, r.Client.Update(ctx, rb))
+
+	// Reconciler should revert modifications
+	assert.NoError(t, r.reconcileRolloutsRoleBinding(ctx, a, role, sa))
+
+	assert.NoError(t, fetchObject(ctx, r.Client, a.Namespace, rb.Name, rb))
+	if diff := cmp.Diff(rb.Subjects, subTemp); diff != "" {
+		t.Fatalf("failed to reconcile roleBinding:\n%s", diff)
+	}
+}
+
+func TestReconcileRolloutsClusterRoleBinding(t *testing.T) {
+	ctx := context.Background()
+	a := makeTestRolloutManager()
+
+	r := makeTestReconciler(t, a)
+	assert.NoError(t, createNamespace(r, a.Namespace))
+
+	sa, err := r.reconcileRolloutsServiceAccount(ctx, a)
+	assert.NoError(t, err)
+
+	clusterRole, err := r.reconcileRolloutsClusterRole(ctx, a)
+	assert.NoError(t, err)
+
+	assert.NoError(t, r.reconcileRolloutsClusterRoleBinding(ctx, a, clusterRole, sa))
+
+	crb := &rbacv1.ClusterRoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      DefaultArgoRolloutsResourceName,
 			Namespace: a.Namespace,
 		},
 	}
 
-	res, err := r.Reconcile(ctx, req)
-	assert.NoError(t, err)
-	if res.Requeue {
-		t.Fatal("reconcile requeued request")
-	}
+	// Modify Subject
+	assert.NoError(t, fetchObject(ctx, r.Client, crb.Namespace, crb.Name, crb))
 
-	sa := &corev1.ServiceAccount{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
-	}, sa); err != nil {
-		t.Fatalf("failed to find the rollouts serviceaccount: %#v\n", err)
-	}
+	subTemp := crb.Subjects
 
-	role := &rbacv1.Role{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
-	}, role); err != nil {
-		t.Fatalf("failed to find the rollouts role: %#v\n", err)
-	}
+	crb.Subjects = append(crb.Subjects, rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: "test", Namespace: "test"})
+	assert.NoError(t, r.Client.Update(ctx, crb))
 
-	rolebinding := &rbacv1.RoleBinding{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
-	}, rolebinding); err != nil {
-		t.Fatalf("failed to find the rollouts rolebinding: %#v\n", err)
-	}
+	// Reconciler should revert modifications
+	assert.NoError(t, r.reconcileRolloutsClusterRoleBinding(ctx, a, clusterRole, sa))
+	assert.NoError(t, fetchObject(ctx, r.Client, crb.Namespace, crb.Name, crb))
 
-	aggregateToAdminClusterRole := &rbacv1.ClusterRole{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name: "argo-rollouts-aggregate-to-admin",
-	}, aggregateToAdminClusterRole); err != nil {
-		t.Fatalf("failed to find the aggregateToAdmin ClusterRole: %#v\n", err)
-	}
-
-	aggregateToEditClusterRole := &rbacv1.ClusterRole{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name: "argo-rollouts-aggregate-to-edit",
-	}, aggregateToEditClusterRole); err != nil {
-		t.Fatalf("failed to find the aggregateToEdit ClusterRole: %#v\n", err)
-	}
-
-	aggregateToViewClusterRole := &rbacv1.ClusterRole{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name: "argo-rollouts-aggregate-to-view",
-	}, aggregateToViewClusterRole); err != nil {
-		t.Fatalf("failed to find the aggregateToView ClusterRole: %#v\n", err)
-	}
-
-	service := &corev1.Service{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsMetricsServiceName,
-		Namespace: a.Namespace,
-	}, service); err != nil {
-		t.Fatalf("failed to find the rollouts metrics service: %#v\n", err)
-	}
-
-	secret := &corev1.Secret{}
-	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultRolloutsNotificationSecretName,
-		Namespace: a.Namespace,
-	}, secret); err != nil {
-		t.Fatalf("failed to find the rollouts secret: %#v\n", err)
+	if diff := cmp.Diff(crb.Subjects, subTemp); diff != "" {
+		t.Fatalf("failed to reconcile clusterRoleBinding:\n%s", diff)
 	}
 }
 
 func TestReconcileAggregateToAdminClusterRole(t *testing.T) {
+	ctx := context.Background()
 	a := makeTestRolloutManager()
 
 	r := makeTestReconciler(t, a)
 	assert.NoError(t, createNamespace(r, a.Namespace))
 
-	assert.NoError(t, r.reconcileRolloutsAggregateToAdminClusterRole(context.Background(), a))
+	assert.NoError(t, r.reconcileRolloutsAggregateToAdminClusterRole(ctx, a))
+
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "argo-rollouts-aggregate-to-admin",
+		},
+	}
+
+	// Modify Rules
+	assert.NoError(t, fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole))
+
+	clusterRole.Rules[0].Verbs = append(clusterRole.Rules[0].Verbs, "test")
+	assert.NoError(t, r.Client.Update(ctx, clusterRole))
+
+	// Reconciler should revert modifications
+	assert.NoError(t, r.reconcileRolloutsAggregateToAdminClusterRole(ctx, a))
+	assert.NoError(t, fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole))
+
+	if diff := cmp.Diff(clusterRole.Rules, getAggregateToAdminPolicyRules()); diff != "" {
+		t.Fatalf("failed to reconcile clusterRole:\n%s", diff)
+	}
 }
 
 func TestReconcileAggregateToEditClusterRole(t *testing.T) {
+	ctx := context.Background()
 	a := makeTestRolloutManager()
 
 	r := makeTestReconciler(t, a)
 	assert.NoError(t, createNamespace(r, a.Namespace))
 
-	assert.NoError(t, r.reconcileRolloutsAggregateToEditClusterRole(context.Background(), a))
+	assert.NoError(t, r.reconcileRolloutsAggregateToEditClusterRole(ctx, a))
+
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "argo-rollouts-aggregate-to-edit",
+		},
+	}
+
+	// Modify Verbs
+	assert.NoError(t, fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole))
+	clusterRole.Rules[0].Verbs = append(clusterRole.Rules[0].Verbs, "test")
+	assert.NoError(t, r.Client.Update(ctx, clusterRole))
+
+	// Reconciler should revert modifications
+	assert.NoError(t, r.reconcileRolloutsAggregateToEditClusterRole(ctx, a))
+
+	assert.NoError(t, fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole))
+	if diff := cmp.Diff(clusterRole.Rules, getAggregateToEditPolicyRules()); diff != "" {
+		t.Fatalf("failed to reconcile clusterRole:\n%s", diff)
+	}
 }
 
 func TestReconcileAggregateToViewClusterRole(t *testing.T) {
+	ctx := context.Background()
 	a := makeTestRolloutManager()
 
 	r := makeTestReconciler(t, a)
 	assert.NoError(t, createNamespace(r, a.Namespace))
 
-	assert.NoError(t, r.reconcileRolloutsAggregateToViewClusterRole(context.Background(), a))
+	assert.NoError(t, r.reconcileRolloutsAggregateToViewClusterRole(ctx, a))
+
+	clusterRole := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "argo-rollouts-aggregate-to-view",
+		},
+	}
+
+	// Modify Rules
+	assert.NoError(t, fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole))
+
+	clusterRole.Rules[0].Verbs = append(clusterRole.Rules[0].Verbs, "test")
+	assert.NoError(t, r.Client.Update(ctx, clusterRole))
+
+	// Reconciler should revert modifications
+	assert.NoError(t, r.reconcileRolloutsAggregateToViewClusterRole(ctx, a))
+
+	assert.NoError(t, fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole))
+	if diff := cmp.Diff(clusterRole.Rules, getAggregateToViewPolicyRules()); diff != "" {
+		t.Fatalf("failed to reconcile clusterRole:\n%s", diff)
+	}
+}
+
+func TestReconcileRollouts_Service(t *testing.T) {
+	ctx := context.Background()
+	a := makeTestRolloutManager()
+
+	r := makeTestReconciler(t, a)
+	assert.NoError(t, createNamespace(r, a.Namespace))
+
+	err := r.reconcileRolloutsMetricsService(ctx, a)
+	assert.NoError(t, err)
+}
+
+func TestReconcileRollouts_Secret(t *testing.T) {
+	a := makeTestRolloutManager()
+
+	r := makeTestReconciler(t, a)
+	assert.NoError(t, createNamespace(r, a.Namespace))
+
+	err := r.reconcileRolloutsSecrets(context.Background(), a)
+	assert.NoError(t, err)
 }
 
 func TestReconcileRolloutManager_CleanUp(t *testing.T) {
