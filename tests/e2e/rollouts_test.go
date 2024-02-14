@@ -112,7 +112,9 @@ var _ = Describe("RolloutManager tests", func() {
 						Name:      "basic-rollouts-manager",
 						Namespace: fixture.TestE2ENamespace,
 					},
-					Spec: rolloutsmanagerv1alpha1.RolloutManagerSpec{},
+					Spec: rolloutsmanagerv1alpha1.RolloutManagerSpec{
+						NamespaceScoped: true,
+					},
 				}
 
 				Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())

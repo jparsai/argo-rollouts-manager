@@ -26,6 +26,9 @@ func setRolloutsLabels(obj *metav1.ObjectMeta) {
 // fetchObject will retrieve the object with the given namespace and name using the Kubernetes API.
 // The result will be stored in the given object.
 func fetchObject(ctx context.Context, client client.Client, namespace string, name string, obj client.Object) error {
+	if namespace == "" {
+		return client.Get(ctx, types.NamespacedName{Name: name}, obj)
+	}
 	return client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, obj)
 }
 
@@ -162,7 +165,6 @@ func checkForExistingRolloutManager(ctx context.Context, client client.Client, c
 			return fmt.Errorf("With a cluster scoped RolloutManager, another RolloutManager is not supported")
 		}
 	}
-
 	// either there are no existing rollout managers or all are namespace scoped, so continue reconciliation of this CR
 	return nil
 }

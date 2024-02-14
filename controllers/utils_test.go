@@ -2,7 +2,6 @@ package rollouts
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	rolloutsmanagerv1alpha1 "github.com/argoproj-labs/argo-rollouts-manager/api/v1alpha1"
@@ -40,13 +39,14 @@ func TestCheckForExistingRolloutManager_singleRM(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestCheckForExistingRolloutManager_multipleRM(t *testing.T) {
+func TestCheckForExistingRolloutManager_multipleRM_withClusterScoped(t *testing.T) {
 	s := scheme.Scheme
 	assert.NoError(t, rolloutsmanagerv1alpha1.AddToScheme(s))
 	ctx := context.Background()
 	log := logr.Log.WithName("rollouts-controller")
 	k8sClient := fake.NewClientBuilder().WithScheme(s).Build()
 
+	// Create 1st RM : cluster scoped
 	rolloutsManager1 := rolloutsmanagerv1alpha1.RolloutManager{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-rm-1",
@@ -58,11 +58,11 @@ func TestCheckForExistingRolloutManager_multipleRM(t *testing.T) {
 	}
 	assert.NoError(t, k8sClient.Create(ctx, &rolloutsManager1))
 
+	// There should be no errpr as only one RM is created.
 	err := checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager1, log)
 	assert.NoError(t, err)
 
-	fmt.Println("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++=")
-
+	// Create 2nd RM : namespace scoped
 	rolloutsManager2 := rolloutsmanagerv1alpha1.RolloutManager{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-rm-2",
@@ -73,22 +73,68 @@ func TestCheckForExistingRolloutManager_multipleRM(t *testing.T) {
 		},
 	}
 	assert.NoError(t, k8sClient.Create(ctx, &rolloutsManager2))
+
+	// 2nd RM should not be allowed
 	err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2, log)
 
-	err = k8sClient.Get(ctx, types.NamespacedName{Name: rolloutsManager2.Name, Namespace: rolloutsManager2.Namespace}, &rolloutsManager2)
-	assert.NoError(t, err)
+	assert.True(t, doMultipleRolloutManagersExist(err))
+	assert.Equal(t, rolloutsManager2.Status.Phase, rolloutsmanagerv1alpha1.PhasePending)
+	assert.Equal(t, rolloutsManager2.Status.RolloutController, rolloutsmanagerv1alpha1.PhasePending)
 
-	fmt.Println("rolloutsManager2.Status.Phase == ", rolloutsManager2.Status.Phase)
-	fmt.Println("rolloutsManager2.Status.RolloutController == ", rolloutsManager2.Status.RolloutController)
-
-	fmt.Println("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++=")
+	// Recheck 1st RM and it should also have error now. since multiple RMs are created
+	assert.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: rolloutsManager2.Name, Namespace: rolloutsManager2.Namespace}, &rolloutsManager2))
 
 	err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager1, log)
 
-	fmt.Println("err == ", err)
-	fmt.Println("rolloutsManager1.Status.Phase == ", rolloutsManager1.Status.Phase)
-	fmt.Println("rolloutsManager1.Status.RolloutController == ", rolloutsManager1.Status.RolloutController)
+	assert.True(t, doMultipleRolloutManagersExist(err))
+	assert.Equal(t, rolloutsManager1.Status.Phase, rolloutsmanagerv1alpha1.PhasePending)
+	assert.Equal(t, rolloutsManager1.Status.RolloutController, rolloutsmanagerv1alpha1.PhasePending)
+}
 
+func TestCheckForExistingRolloutManager_multipleRM_noClusterScoped(t *testing.T) {
+	s := scheme.Scheme
+	assert.NoError(t, rolloutsmanagerv1alpha1.AddToScheme(s))
+	ctx := context.Background()
+	log := logr.Log.WithName("rollouts-controller")
+	k8sClient := fake.NewClientBuilder().WithScheme(s).Build()
+
+	// Create 1st RM : namespace scoped
+	rolloutsManager1 := rolloutsmanagerv1alpha1.RolloutManager{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rm-1",
+			Namespace: "test-ns-1",
+		},
+		Spec: rolloutsmanagerv1alpha1.RolloutManagerSpec{
+			NamespaceScoped: true,
+		},
+	}
+	assert.NoError(t, k8sClient.Create(ctx, &rolloutsManager1))
+
+	// There should be no errpr as only one RM is created.
+	err := checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager1, log)
+	assert.NoError(t, err)
+
+	// Create 2nd RM : namespace scoped
+	rolloutsManager2 := rolloutsmanagerv1alpha1.RolloutManager{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-rm-2",
+			Namespace: "test-ns-2",
+		},
+		Spec: rolloutsmanagerv1alpha1.RolloutManagerSpec{
+			NamespaceScoped: true,
+		},
+	}
+	assert.NoError(t, k8sClient.Create(ctx, &rolloutsManager2))
+
+	// 2nd RM should be allowed
+	err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2, log)
+	assert.NoError(t, err)
+
+	// Recheck 1st RM and it should still work. since all namespace scoped RMs are created
+	assert.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Name: rolloutsManager2.Name, Namespace: rolloutsManager2.Namespace}, &rolloutsManager2))
+
+	err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager1, log)
+	assert.NoError(t, err)
 }
 
 const (
