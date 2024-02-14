@@ -39,6 +39,7 @@ func fetchRolloutManager(f func(app rolloutsmanagerv1alpha1.RolloutManager) bool
 
 func HavePhase(phase rolloutsmanagerv1alpha1.RolloutControllerPhase) matcher.GomegaMatcher {
 	return fetchRolloutManager(func(app rolloutsmanagerv1alpha1.RolloutManager) bool {
+		fmt.Println("HavePhase:", "expected: ", phase, "actual: ", app.Status.Phase)
 		return app.Status.Phase == phase
 	})
 }

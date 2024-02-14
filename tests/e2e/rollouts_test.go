@@ -8,10 +8,12 @@ import (
 
 	"github.com/argoproj-labs/argo-rollouts-manager/tests/e2e/fixture"
 	"github.com/argoproj-labs/argo-rollouts-manager/tests/e2e/fixture/k8s"
+	rmFixture "github.com/argoproj-labs/argo-rollouts-manager/tests/e2e/fixture/rolloutmanager"
 	rolloutManagerFixture "github.com/argoproj-labs/argo-rollouts-manager/tests/e2e/fixture/rolloutmanager"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	rmv1alpha1 "github.com/argoproj-labs/argo-rollouts-manager/api/v1alpha1"
 	rolloutsmanagerv1alpha1 "github.com/argoproj-labs/argo-rollouts-manager/api/v1alpha1"
 
 	controllers "github.com/argoproj-labs/argo-rollouts-manager/controllers"
@@ -35,7 +37,7 @@ var _ = Describe("RolloutManager tests", func() {
 			Expect(fixture.EnsureCleanSlate()).To(Succeed())
 
 			var err error
-			k8sClient, err = fixture.GetE2ETestKubeClient()
+			k8sClient, _, err = fixture.GetE2ETestKubeClient()
 			Expect(err).ToNot(HaveOccurred())
 			ctx = context.Background()
 
@@ -44,7 +46,9 @@ var _ = Describe("RolloutManager tests", func() {
 					Name:      "basic-rollouts-manager",
 					Namespace: fixture.TestE2ENamespace,
 				},
-				Spec: rolloutsmanagerv1alpha1.RolloutManagerSpec{},
+				Spec: rolloutsmanagerv1alpha1.RolloutManagerSpec{
+					NamespaceScoped: true,
+				},
 			}
 		})
 
@@ -199,8 +203,11 @@ var _ = Describe("RolloutManager tests", func() {
 						"--loglevel",
 						"error",
 					},
+					NamespaceScoped: true,
 				}
 				Expect(k8sClient.Create(ctx, &rolloutManager)).To(Succeed())
+				Eventually(rolloutManager, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
+
 				deployment := appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultArgoRolloutsResourceName, Namespace: rolloutManager.Namespace},
 				}
@@ -214,6 +221,7 @@ var _ = Describe("RolloutManager tests", func() {
 						"--logformat",
 						"text",
 					},
+					NamespaceScoped: true,
 				}
 				Expect(k8sClient.Update(ctx, &rolloutManager)).To(Succeed())
 				Eventually(func() []string {
@@ -233,6 +241,8 @@ var _ = Describe("RolloutManager tests", func() {
 					},
 				}
 				Expect(k8sClient.Create(ctx, &rolloutManager)).To(Succeed())
+				Eventually(rolloutManager, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
+
 				deployment := appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultArgoRolloutsResourceName, Namespace: rolloutManager.Namespace},
 				}
@@ -275,6 +285,7 @@ var _ = Describe("RolloutManager tests", func() {
 					Version: "latest",
 				}
 				Expect(k8sClient.Create(ctx, &rolloutManager)).To(Succeed())
+				Eventually(rolloutManager, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
 
 				deployment := appsv1.Deployment{
 					ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultArgoRolloutsResourceName, Namespace: rolloutManager.Namespace},

@@ -16,6 +16,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	MultipleRMsNotAllowed = "With a cluster scoped RolloutManager, another RolloutManager is not supported"
+)
+
 func setRolloutsLabels(obj *metav1.ObjectMeta) {
 	obj.Labels = map[string]string{}
 	obj.Labels["app.kubernetes.io/name"] = DefaultArgoRolloutsResourceName
@@ -162,7 +166,7 @@ func checkForExistingRolloutManager(ctx context.Context, client client.Client, c
 			if err := client.Status().Update(ctx, cr); err != nil {
 				return fmt.Errorf("error updating the RolloutManager CR status: %s", err)
 			}
-			return fmt.Errorf("With a cluster scoped RolloutManager, another RolloutManager is not supported")
+			return fmt.Errorf(MultipleRMsNotAllowed)
 		}
 	}
 	// either there are no existing rollout managers or all are namespace scoped, so continue reconciliation of this CR
@@ -170,7 +174,7 @@ func checkForExistingRolloutManager(ctx context.Context, client client.Client, c
 }
 
 func doMultipleRolloutManagersExist(err error) bool {
-	return err.Error() == "With a cluster scoped RolloutManager, another RolloutManager is not supported"
+	return err.Error() == MultipleRMsNotAllowed
 }
 
 func createCondition(conditionType string, status metav1.ConditionStatus, reason string, message string) *metav1.Condition {

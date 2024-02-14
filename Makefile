@@ -109,7 +109,7 @@ test: manifests generate fmt vet envtest ## Run tests.
 
 .PHONY: test-e2e
 test-e2e: ## Run operator e2e tests
-	go test -v -p=1 -timeout=10m -race -count=1 -coverprofile=coverage.out ./tests/e2e
+	go test -v -p=1 -timeout=30m -race -count=1 -coverprofile=coverage.out ./tests/e2e
 
 ##@ Build
 

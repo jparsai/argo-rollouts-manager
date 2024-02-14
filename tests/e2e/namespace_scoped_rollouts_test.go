@@ -21,15 +21,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-var _ = Describe("Cluster Scoped RolloutManager tests", func() {
+var _ = Describe("Namespace Scoped RolloutManager tests", func() {
 
-	Context("Testing cluster scoped RolloutManager behaviour", func() {
+	Context("Testing namespace scoped RolloutManager behaviour", func() {
 
 		var (
-			err       error
-			ctx       context.Context
-			k8sClient client.Client
-			scheme    *runtime.Scheme
+			err        error
+			ctx        context.Context
+			k8sClient  client.Client
+			scheme     *runtime.Scheme
+			testNsList []string
 		)
 
 		BeforeEach(func() {
@@ -44,19 +45,27 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 			ctx = context.Background()
 		})
 
+		AfterEach(func() {
+			// delete namespace created for test
+			cleaner, err := fixture.NewCleaner()
+			Expect(err).To(Succeed())
+
+			for _, ns := range testNsList {
+				cleaner.DeleteNamespace(ns)
+			}
+		})
+
 		It("After creating namespace scoped RolloutManager in a namespace, operator should create appropriate K8s resources and watch argo rollouts CR in same namespace.", func() {
 
 			nsName := "test-rom-ns"
+			testNsList = append(testNsList, nsName)
 			labels := map[string]string{"app": "test-argo-app"}
-
-			// delete namespace created for test
-			defer fixture.DeleteNamespace(ctx, nsName, k8sClient)
 
 			By("Create a namespace for rollout manager")
 			Expect(createNamespace(ctx, k8sClient, nsName)).To(Succeed())
 
 			By("Create cluster scoped RolloutManager in default namespace.")
-			rolloutsManager, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", nsName, false)
+			rolloutsManager, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", nsName, true)
 			Expect(err).To(Succeed())
 
 			By("Verify that RolloutManager is successfully created.")
@@ -71,9 +80,9 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 					Message: "",
 				}))
 
-			By("Varify that expected resources are created")
+			By("Verify that expected resources are created")
 
-			validateArgoRolloutManagerResources(ctx, rolloutsManager, k8sClient)
+			validateArgoRolloutManagerResources(ctx, rolloutsManager, k8sClient, true)
 
 			By("Verify argo rollout controller able to reconcile CR.")
 
@@ -84,9 +93,7 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 		It("After creating namespace scoped RolloutManager in a namespace, another namespace scoped RolloutManager should still be allowed.", func() {
 
 			nsName := "test-rom-ns"
-
-			// delete namespace created for test
-			defer fixture.DeleteNamespace(ctx, nsName, k8sClient)
+			testNsList = append(testNsList, nsName)
 
 			By("Create namespace scoped RolloutManager in default namespace.")
 			rolloutsManagerNs1, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", fixture.TestE2ENamespace, true)
@@ -137,13 +144,9 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 
 		It("After creating namespace scoped RolloutManager in a namespace, operator should create appropriate K8s resources but it should not watch argo rollouts CR in other namespace.", func() {
 
-			nsName1 := "test-rom-ns"
-			nsName2 := "test-ro-ns"
+			nsName1, nsName2 := "test-rom-ns", "test-ro-ns"
+			testNsList = append(testNsList, nsName1, nsName2)
 			labels := map[string]string{"app": "test-argo-app"}
-
-			// delete namespace created for test
-			//defer fixture.DeleteNamespace(ctx, nsName1, k8sClient)
-			//defer fixture.DeleteNamespace(ctx, nsName2, k8sClient)
 
 			By("Create a namespace for rollout manager")
 			Expect(createNamespace(ctx, k8sClient, nsName1)).To(Succeed())
@@ -164,9 +167,9 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 					Message: "",
 				}))
 
-			By("Varify that expected resources are created")
+			By("Verify that expected resources are created")
 
-			validateArgoRolloutManagerResources(ctx, rolloutsManager, k8sClient)
+			validateArgoRolloutManagerResources(ctx, rolloutsManager, k8sClient, true)
 
 			By("Verify argo rollout controller is not able to reconcile CR from different namespace.")
 

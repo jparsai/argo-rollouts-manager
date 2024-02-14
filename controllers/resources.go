@@ -169,7 +169,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRoleBinding(ctx context.Cont
 	return nil
 }
 
-// Reconcile rollouts clusterRolebinding.
+// Reconcile rollouts clusterRoleBinding.
 func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager, clusterRole *rbacv1.ClusterRole, sa *corev1.ServiceAccount) error {
 
 	expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{
@@ -196,17 +196,17 @@ func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx conte
 
 	actualClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
 
-	// Fetch the clusterRolebinding if exists and store that in actualClusterRoleBinding.
+	// Fetch the clusterRoleBinding if exists and store that in actualClusterRoleBinding.
 	if err := fetchObject(ctx, r.Client, expectedClusterRoleBinding.Namespace, expectedClusterRoleBinding.Name, actualClusterRoleBinding); err != nil {
 		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to get the clusterRolebinding associated with %s : %s", expectedClusterRoleBinding.Name, err)
+			return fmt.Errorf("failed to get the clusterRoleBinding associated with %s : %s", expectedClusterRoleBinding.Name, err)
 		}
 
-		log.Info(fmt.Sprintf("Creating clusterRolebinding %s", expectedClusterRoleBinding.Name))
+		log.Info(fmt.Sprintf("Creating clusterRoleBinding %s", expectedClusterRoleBinding.Name))
 		return r.Client.Create(ctx, expectedClusterRoleBinding)
 	}
 
-	// Reconcile if the clusterRolebinding already exists and modified.
+	// Reconcile if the clusterRoleBinding already exists and modified.
 	if !reflect.DeepEqual(expectedClusterRoleBinding.Subjects, actualClusterRoleBinding.Subjects) {
 		actualClusterRoleBinding.Subjects = expectedClusterRoleBinding.Subjects
 

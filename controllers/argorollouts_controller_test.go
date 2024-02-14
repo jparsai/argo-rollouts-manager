@@ -252,6 +252,6 @@ func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped_multiple(
 	assert.True(t,
 		rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionTypeErrorOccurred &&
 			rm2.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonMultipleClusterScopedRolloutManager &&
-			rm2.Status.Conditions[0].Message == "With a cluster scoped RolloutManager, another RolloutManager is not supported" &&
+			rm2.Status.Conditions[0].Message == MultipleRMsNotAllowed &&
 			rm2.Status.Conditions[0].Status == metav1.ConditionTrue)
 }
