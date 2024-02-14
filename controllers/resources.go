@@ -11,7 +11,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -89,12 +88,13 @@ func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Cont
 
 	clusterRole := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: DefaultArgoRolloutsResourceName,
+			Name:      DefaultArgoRolloutsResourceName,
+			Namespace: cr.Namespace,
 		},
 	}
 	setRolloutsLabels(&clusterRole.ObjectMeta)
 
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: clusterRole.Name}, clusterRole); err != nil {
+	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to reconcile the clusterRole for the service account associated with %s : %s", clusterRole.Name, err)
 		}
@@ -105,8 +105,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Cont
 
 		log.Info(fmt.Sprintf("Creating clusterRole %s", clusterRole.Name))
 		clusterRole.Rules = expectedPolicyRules
-		err = r.Client.Create(ctx, clusterRole)
-		return clusterRole, err
+		return clusterRole, r.Client.Create(ctx, clusterRole)
 	}
 
 	// Reconcile if the clusterRole already exists and modified.
@@ -175,7 +174,8 @@ func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx conte
 
 	expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: DefaultArgoRolloutsResourceName,
+			Name:      DefaultArgoRolloutsResourceName,
+			Namespace: cr.Namespace,
 		},
 	}
 	setRolloutsLabels(&expectedClusterRoleBinding.ObjectMeta)
@@ -197,16 +197,13 @@ func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx conte
 	actualClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
 
 	// Fetch the clusterRolebinding if exists and store that in actualClusterRoleBinding.
-
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: expectedClusterRoleBinding.Name}, actualClusterRoleBinding); err != nil {
+	if err := fetchObject(ctx, r.Client, expectedClusterRoleBinding.Namespace, expectedClusterRoleBinding.Name, actualClusterRoleBinding); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to get the clusterRolebinding associated with %s : %s", expectedClusterRoleBinding.Name, err)
 		}
 
 		log.Info(fmt.Sprintf("Creating clusterRolebinding %s", expectedClusterRoleBinding.Name))
-		err = r.Client.Create(ctx, expectedClusterRoleBinding)
-
-		return err
+		return r.Client.Create(ctx, expectedClusterRoleBinding)
 	}
 
 	// Reconcile if the clusterRolebinding already exists and modified.
@@ -236,7 +233,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToAdminClusterRole(
 	}
 	setRolloutsAggregatedClusterRoleLabels(&clusterRole.ObjectMeta, name, aggregationType)
 
-	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
+	if err := fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to reconcile the aggregated ClusterRole %s : %s", clusterRole.Name, err)
 		}
@@ -270,7 +267,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToEditClusterRole(c
 	}
 	setRolloutsAggregatedClusterRoleLabels(&clusterRole.ObjectMeta, name, aggregationType)
 
-	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
+	if err := fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to reconcile the aggregated ClusterRole %s : %s", clusterRole.Name, err)
 		}
@@ -304,7 +301,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToViewClusterRole(c
 	}
 	setRolloutsAggregatedClusterRoleLabels(&clusterRole.ObjectMeta, name, aggregationType)
 
-	if err := fetchObject(ctx, r.Client, cr.Namespace, clusterRole.Name, clusterRole); err != nil {
+	if err := fetchObject(ctx, r.Client, "", clusterRole.Name, clusterRole); err != nil {
 		if !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to reconcile the aggregated ClusterRole %s : %s", clusterRole.Name, err)
 		}
