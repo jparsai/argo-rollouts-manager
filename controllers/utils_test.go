@@ -58,7 +58,7 @@ func TestCheckForExistingRolloutManager_multipleRM_withClusterScoped(t *testing.
 	}
 	assert.NoError(t, k8sClient.Create(ctx, &rolloutsManager1))
 
-	// There should be no error as only one RM is created.
+	// There should be no error as only one RM is created yet.
 	err := checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager1, log)
 	assert.NoError(t, err)
 

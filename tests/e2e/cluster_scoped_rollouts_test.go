@@ -50,15 +50,19 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 		})
 
 		AfterEach(func() {
-			// delete namespace created for test
+			By("Delete namespace created for test")
 			cleaner, err := fixture.NewCleaner()
 			Expect(err).To(Succeed())
-
 			for _, ns := range testNsList {
 				cleaner.DeleteNamespace(ns)
 			}
 		})
 
+		/*
+			In this test a cluster scoped RolloutManager is created in argo-rollouts namespace.
+			After creation of RM operator should create required resources (ServiceAccount, ClusterRoles, ClusterRoleBinding, Service, Secret, Deployment) in argo-rollouts namespace.
+			Now when a Rollouts CR is created in a different namespace, operator should still be able to reconcile.
+		*/
 		It("After creating cluster scoped RolloutManager in default namespace i.e argo-rollouts, operator should create appropriate K8s resources and watch argo rollouts CR in different namespace.", func() {
 
 			nsName := "test-ro-ns"
@@ -82,7 +86,6 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 				}))
 
 			By("Verify that expected resources are created")
-
 			validateArgoRolloutManagerResources(ctx, rolloutsManager, k8sClient, false)
 
 			By("Verify argo rollout controller able to reconcile CR of other namespace.")
@@ -94,6 +97,11 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 			validateArgoRolloutsResources(ctx, k8sClient, nsName, labels, 31000, 32000)
 		})
 
+		/*
+			In this test a cluster scoped RolloutManager is created in namespace other than argo-rollouts.
+			After creation of RM operator should create required resources (ServiceAccount, ClusterRoles, ClusterRoleBinding, Service, Secret, Deployment) in other namespace.
+			Now when a Rollouts CR is created in a another namespace, operator should still be able to reconcile.
+		*/
 		It("After creating cluster scoped RolloutManager in namespace other than argo-rollouts, operator should create appropriate K8s resources and watch argo rollouts CR in another namespace.", func() {
 
 			nsName1, nsName2 := "test-rom-ns", "test-ro-ns"
@@ -120,7 +128,6 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 				}))
 
 			By("Verify that expected resources are created")
-
 			validateArgoRolloutManagerResources(ctx, rolloutsManager, k8sClient, false)
 
 			By("Verify argo rollout controller able to reconcile CR of other namespace.")
@@ -132,20 +139,25 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 			validateArgoRolloutsResources(ctx, k8sClient, nsName2, labels, 31000, 32000)
 		})
 
+		/*
+			In this test a cluster scoped RolloutManager is created in a namespace.
+			After creation of RM operator should create required resources (ServiceAccount, ClusterRoles, ClusterRoleBinding, Service, Secret, Deployment) in namespace.
+			Now when a Rollouts CR is created in multiple namespaces, operator should still be able to reconcile all of them.
+		*/
 		It("After creating cluster scoped RolloutManager in a namespace, operator should create appropriate K8s resources and watch argo rollouts CR in multiple namespace.", func() {
 
 			nsName1, nsName2, nsName3 := "rom-ns-1", "ro-ns-1", "ro-ns-2"
 			testNsList = append(testNsList, nsName1, nsName2, nsName3)
 			labels := map[string]string{"app": "test-argo-app"}
 
-			By("Create a different namespace for rollout manager")
+			By("Create a namespace for rollout manager")
 			Expect(createNamespace(ctx, k8sClient, nsName1)).To(Succeed())
 
 			By("Create cluster scoped RolloutManager.")
 			rolloutsManager, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", nsName1, false)
 			Expect(err).To(Succeed())
 
-			By("Verify that RolloutManager is successfully created.")
+			By("Verify that RolloutManager is successfully created.")
 			Eventually(rolloutsManager, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhaseAvailable))
 
 			By("Verify that Status.Condition is set.")
@@ -158,30 +170,35 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 				}))
 
 			By("Verify that expected resources are created")
-
 			validateArgoRolloutManagerResources(ctx, rolloutsManager, k8sClient, false)
 
-			By("Verify argo rollout controller able to reconcile CR of other namespace.")
+			By("Verify argo rollout controller able to reconcile CR of multiple namespaces.")
 
 			By("1st rollout : Create a different namespace for rollout")
 			Expect(createNamespace(ctx, k8sClient, nsName2)).To(Succeed())
 
-			By("1st rollout : Create active and preview services in new namespace")
+			By("1st rollout : Create active and preview services in 1st namespace")
 			validateArgoRolloutsResources(ctx, k8sClient, nsName2, labels, 31000, 32000)
 
 			By("2nd rollout : Create a another namespace for 2nd rollout")
 			Expect(createNamespace(ctx, k8sClient, nsName3)).To(Succeed())
 
-			By("2nd rollout : Create and validate rollouts.")
+			By("2nd rollout : Create active and preview services in 2nd namespace")
 			validateArgoRolloutsResources(ctx, k8sClient, nsName3, labels, 31001, 32002)
 		})
 
+		/*
+			In this test a cluster scoped RolloutManager is created in a namespace.
+			After creation of RM operator should create required resources (ServiceAccount, ClusterRoles, ClusterRoleBinding, Service, Secret, Deployment) in namespace.
+			Now when a namespace scoped RolloutManager is created, it should not be accepted by operator, since there in an existing RolloutManager watching entire cluster.
+			When 1st cluster scoped RolloutManager is reconciled again it should also have error, because only one cluster scoped or all namespace scoped RolloutManagers are supported.
+		*/
 		It("After creating cluster scoped RolloutManager in a namespace, another namespace scoped RolloutManager should not be allowed.", func() {
 
 			nsName := "test-ro-ns"
 			testNsList = append(testNsList, nsName)
 
-			By("Create cluster scoped RolloutManager in default namespace.")
+			By("Create cluster scoped RolloutManager in a namespace.")
 			rolloutsManagerCl, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", fixture.TestE2ENamespace, false)
 			Expect(err).To(Succeed())
 
@@ -218,11 +235,9 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 
 			By("Update cluster scoped RolloutManager, after reconciliation it should also stop working.")
 
-			err = k8sClient.Get(ctx, client.ObjectKeyFromObject(&rolloutsManagerCl), &rolloutsManagerCl)
-			Expect(err).To(Succeed())
+			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&rolloutsManagerCl), &rolloutsManagerCl)).To(Succeed())
 			rolloutsManagerCl.Spec.Env = append(rolloutsManagerCl.Spec.Env, corev1.EnvVar{Name: "test-name", Value: "test-value"})
-			err = k8sClient.Update(ctx, &rolloutsManagerCl)
-			Expect(err).To(Succeed())
+			Expect(k8sClient.Update(ctx, &rolloutsManagerCl)).To(Succeed())
 
 			By("Verify that now cluster scoped RolloutManager is also not working.")
 			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
@@ -237,12 +252,18 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 				}))
 		})
 
+		/*
+			In this test a cluster scoped RolloutManager is created in a namespace.
+			After creation of RM operator should create required resources (ServiceAccount, ClusterRoles, ClusterRoleBinding, Service, Secret, Deployment) in namespace.
+			Now when another cluster scoped RolloutManager is created, it should not be accepted by operator, since there in an existing RolloutManager watching entire cluster.
+			When cluster scoped RolloutManager is reconciled again it should also have error, because only one cluster scoped or all namespace scoped RolloutManagers are supported.
+		*/
 		It("After creating cluster scoped RolloutManager in a namespace, another cluster scoped RolloutManager should not be allowed.", func() {
 
 			nsName := "test-ro-ns"
 			testNsList = append(testNsList, nsName)
 
-			By("Create cluster scoped RolloutManager in default namespace.")
+			By("Create cluster scoped RolloutManager in a namespace.")
 			rolloutsManagerCl, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", fixture.TestE2ENamespace, false)
 			Expect(err).To(Succeed())
 
@@ -298,20 +319,26 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 				}))
 		})
 
+		/*
+			In this test a namespace scoped RolloutManager is created in a namespace.
+			After creation of RM operator should create required resources (ServiceAccount, Roles, RoleBinding, Service, Secret, Deployment) in namespace.
+			Now when a cluster scoped RolloutManager is created, it should not be accepted by operator, since there in an existing RolloutManager watching a namespace.
+			When namespace scoped RolloutManager is reconciled again it should also have error, because only one cluster scoped or all namespace scoped RolloutManagers are supported.
+		*/
 		It("After creating namespace scoped RolloutManager, if a cluster scoped RolloutManager is created, both should not be allowed.", func() {
 
 			nsName := "test-ro-ns"
 			testNsList = append(testNsList, nsName)
 
-			By("Create namespace scoped RolloutManager in default namespace.")
-			rolloutsManagerCl, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", fixture.TestE2ENamespace, true)
+			By("Create namespace scoped RolloutManager in a namespace.")
+			rolloutsManagerNs, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", fixture.TestE2ENamespace, true)
 			Expect(err).To(Succeed())
 
 			By("Verify that RolloutManager is successfully created.")
-			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhaseAvailable))
+			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhaseAvailable))
 
 			By("Verify that Status.Condition is set.")
-			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HaveConditions(
+			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HaveConditions(
 				metav1.Condition{
 					Type:    rmv1alpha1.RolloutManagerConditionTypeSuccess,
 					Status:  metav1.ConditionFalse,
@@ -323,14 +350,14 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 			Expect(createNamespace(ctx, k8sClient, nsName)).To(Succeed())
 
 			By("Create cluster scoped RolloutManager in different namespace.")
-			rolloutsManagerNs, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-2", nsName, false)
+			rolloutsManagerCl, err := createRolloutManager(ctx, k8sClient, "test-rollouts-manager-2", nsName, false)
 			Expect(err).To(Succeed())
 
 			By("Verify that RolloutManager is not working.")
-			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
+			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
 
 			By("Verify that Status.Condition is having error message.")
-			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HaveConditions(
+			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HaveConditions(
 				metav1.Condition{
 					Type:    rmv1alpha1.RolloutManagerConditionTypeErrorOccurred,
 					Status:  metav1.ConditionTrue,
@@ -340,17 +367,17 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 
 			By("Update namespace scoped RolloutManager, after reconciliation it should also stop working.")
 
-			err = k8sClient.Get(ctx, client.ObjectKeyFromObject(&rolloutsManagerCl), &rolloutsManagerCl)
+			err = k8sClient.Get(ctx, client.ObjectKeyFromObject(&rolloutsManagerNs), &rolloutsManagerNs)
 			Expect(err).To(Succeed())
-			rolloutsManagerCl.Spec.Env = append(rolloutsManagerCl.Spec.Env, corev1.EnvVar{Name: "test-name", Value: "test-value"})
-			err = k8sClient.Update(ctx, &rolloutsManagerCl)
+			rolloutsManagerNs.Spec.Env = append(rolloutsManagerNs.Spec.Env, corev1.EnvVar{Name: "test-name", Value: "test-value"})
+			err = k8sClient.Update(ctx, &rolloutsManagerNs)
 			Expect(err).To(Succeed())
 
 			By("Verify that now namespace scoped RolloutManager is also not working.")
-			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
+			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhasePending))
 
 			By("Verify that Status.Condition is now having error message.")
-			Eventually(rolloutsManagerCl, "3m", "1s").Should(rmFixture.HaveConditions(
+			Eventually(rolloutsManagerNs, "3m", "1s").Should(rmFixture.HaveConditions(
 				metav1.Condition{
 					Type:    rmv1alpha1.RolloutManagerConditionTypeErrorOccurred,
 					Status:  metav1.ConditionTrue,
@@ -364,17 +391,15 @@ var _ = Describe("Cluster Scoped RolloutManager tests", func() {
 func validateArgoRolloutManagerResources(ctx context.Context, rolloutsManager rmv1alpha1.RolloutManager, k8sClient client.Client, namespaceScoped bool) {
 
 	By("Verify that ServiceAccount is created.")
-
 	Eventually(&corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultArgoRolloutsResourceName, Namespace: rolloutsManager.Namespace},
 	}, "10s", "1s").Should(k8s.ExistByName(k8sClient))
 
 	if namespaceScoped {
-		By("Verify that Roles are created.")
+		By("Verify that argo-rollout Role is created.")
 		Eventually(&rbacv1.Role{
 			ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultArgoRolloutsResourceName, Namespace: rolloutsManager.Namespace},
 		}, "10s", "1s").Should(k8s.ExistByName(k8sClient))
-
 	} else {
 		By("Verify that argo-rollout ClusterRoles is created.")
 		Eventually(&rbacv1.ClusterRole{
@@ -403,19 +428,16 @@ func validateArgoRolloutManagerResources(ctx context.Context, rolloutsManager rm
 	}
 
 	By("Verify that Service is created.")
-
 	Eventually(&corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultArgoRolloutsMetricsServiceName, Namespace: rolloutsManager.Namespace},
 	}, "10s", "1s").Should(k8s.ExistByName(k8sClient))
 
 	By("Verify that Secret is created.")
-
 	Eventually(&corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultRolloutsNotificationSecretName, Namespace: rolloutsManager.Namespace},
 	}, "30s", "1s").Should(k8s.ExistByName(k8sClient))
 
 	By("Verify that argo rollouts deployment is created and it is in Ready state.")
-
 	depl := appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: controllers.DefaultArgoRolloutsResourceName, Namespace: rolloutsManager.Namespace},
 	}

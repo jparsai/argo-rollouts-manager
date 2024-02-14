@@ -17,9 +17,9 @@ import (
 func TestReconcileRolloutManager_verifyRolloutsResources_namespaceScoped(t *testing.T) {
 
 	ctx := context.Background()
-	a := makeTestRolloutManager()
 
-	// make it namespace scoped
+	// Create RolloutManager and make it namespace scoped
+	a := makeTestRolloutManager()
 	a.Spec.NamespaceScoped = true
 
 	r := makeTestReconciler(t, a)
@@ -38,6 +38,7 @@ func TestReconcileRolloutManager_verifyRolloutsResources_namespaceScoped(t *test
 		t.Fatal("reconcile requeued request")
 	}
 
+	// Check if RolloutManager's Status.Conditions are set.
 	assert.NoError(t, r.Client.Get(ctx, types.NamespacedName{Name: a.Name, Namespace: a.Namespace}, a))
 	assert.True(t,
 		a.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionTypeSuccess &&
@@ -45,26 +46,24 @@ func TestReconcileRolloutManager_verifyRolloutsResources_namespaceScoped(t *test
 			a.Status.Conditions[0].Message == "" &&
 			a.Status.Conditions[0].Status == metav1.ConditionFalse)
 
+	// Check expected resources are created.
 	sa := &corev1.ServiceAccount{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
+		Name: DefaultArgoRolloutsResourceName, Namespace: testNamespace,
 	}, sa); err != nil {
 		t.Fatalf("failed to find the rollouts serviceaccount: %#v\n", err)
 	}
 
 	role := &rbacv1.Role{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
+		Name: DefaultArgoRolloutsResourceName, Namespace: testNamespace,
 	}, role); err != nil {
 		t.Fatalf("failed to find the rollouts role: %#v\n", err)
 	}
 
 	rolebinding := &rbacv1.RoleBinding{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
+		Name: DefaultArgoRolloutsResourceName, Namespace: testNamespace,
 	}, rolebinding); err != nil {
 		t.Fatalf("failed to find the rollouts rolebinding: %#v\n", err)
 	}
@@ -92,20 +91,19 @@ func TestReconcileRolloutManager_verifyRolloutsResources_namespaceScoped(t *test
 
 	service := &corev1.Service{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsMetricsServiceName,
-		Namespace: a.Namespace,
+		Name: DefaultArgoRolloutsMetricsServiceName, Namespace: a.Namespace,
 	}, service); err != nil {
 		t.Fatalf("failed to find the rollouts metrics service: %#v\n", err)
 	}
 
 	secret := &corev1.Secret{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultRolloutsNotificationSecretName,
-		Namespace: a.Namespace,
+		Name: DefaultRolloutsNotificationSecretName, Namespace: a.Namespace,
 	}, secret); err != nil {
 		t.Fatalf("failed to find the rollouts secret: %#v\n", err)
 	}
 
+	// Check if resources created bt RolloutManager are deleted.
 	a.DeletionTimestamp = &v1.Time{}
 	err = r.deleteRolloutResources(ctx, a)
 	assert.NoError(t, err)
@@ -114,6 +112,8 @@ func TestReconcileRolloutManager_verifyRolloutsResources_namespaceScoped(t *test
 func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped(t *testing.T) {
 
 	ctx := context.Background()
+
+	// Create RolloutManager and make it cluster scoped
 	a := makeTestRolloutManager()
 
 	r := makeTestReconciler(t, a)
@@ -132,6 +132,7 @@ func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped(t *testin
 		t.Fatal("reconcile requeued request")
 	}
 
+	// Check if RolloutManager's Status.Conditions are set.
 	assert.NoError(t, r.Client.Get(ctx, types.NamespacedName{Name: a.Name, Namespace: a.Namespace}, a))
 	assert.True(t,
 		a.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionTypeSuccess &&
@@ -139,18 +140,17 @@ func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped(t *testin
 			a.Status.Conditions[0].Message == "" &&
 			a.Status.Conditions[0].Status == metav1.ConditionFalse)
 
+	// Check expected resources are created.
 	sa := &corev1.ServiceAccount{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
+		Name: DefaultArgoRolloutsResourceName, Namespace: testNamespace,
 	}, sa); err != nil {
 		t.Fatalf("failed to find the rollouts serviceaccount: %#v\n", err)
 	}
 
 	clusterRole := &rbacv1.ClusterRole{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsResourceName,
-		Namespace: testNamespace,
+		Name: DefaultArgoRolloutsResourceName, Namespace: testNamespace,
 	}, clusterRole); err != nil {
 		t.Fatalf("failed to find the rollouts role: %#v\n", err)
 	}
@@ -185,16 +185,14 @@ func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped(t *testin
 
 	service := &corev1.Service{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultArgoRolloutsMetricsServiceName,
-		Namespace: a.Namespace,
+		Name: DefaultArgoRolloutsMetricsServiceName, Namespace: a.Namespace,
 	}, service); err != nil {
 		t.Fatalf("failed to find the rollouts metrics service: %#v\n", err)
 	}
 
 	secret := &corev1.Secret{}
 	if err = r.Client.Get(ctx, types.NamespacedName{
-		Name:      DefaultRolloutsNotificationSecretName,
-		Namespace: a.Namespace,
+		Name: DefaultRolloutsNotificationSecretName, Namespace: a.Namespace,
 	}, secret); err != nil {
 		t.Fatalf("failed to find the rollouts secret: %#v\n", err)
 	}
@@ -203,6 +201,8 @@ func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped(t *testin
 func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped_multiple(t *testing.T) {
 
 	ctx := context.Background()
+
+	// Create RolloutManager and make it cluster scoped
 	rm1 := makeTestRolloutManager()
 
 	r1 := makeTestReconciler(t, rm1)
@@ -221,6 +221,7 @@ func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped_multiple(
 		t.Fatal("reconcile requeued request")
 	}
 
+	// Check if RolloutManager's Status.Conditions are set.
 	assert.NoError(t, r1.Client.Get(ctx, types.NamespacedName{Name: rm1.Name, Namespace: rm1.Namespace}, rm1))
 	assert.True(t,
 		rm1.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionTypeSuccess &&
@@ -248,6 +249,7 @@ func TestReconcileRolloutManager_verifyRolloutsResources_clusterScoped_multiple(
 		t.Fatal("reconcile requeued request")
 	}
 
+	// Check expected resources are created.
 	assert.NoError(t, r1.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2))
 	assert.True(t,
 		rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionTypeErrorOccurred &&

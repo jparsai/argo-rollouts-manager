@@ -81,7 +81,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRole(ctx context.Context, cr
 	return role, nil
 }
 
-// Reconciles rollouts role.
+// Reconciles argo-rollouts clusterRole.
 func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) (*rbacv1.ClusterRole, error) {
 
 	expectedPolicyRules := GetPolicyRules()

@@ -10,7 +10,7 @@ import (
 
 func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) (*metav1.Condition, error) {
 
-	log.Info("Searching for existing RolloutManager CRs")
+	log.Info("Searching for existing RolloutManager")
 	if err := checkForExistingRolloutManager(ctx, r.Client, cr, log); err != nil {
 		if doMultipleRolloutManagersExist(err) {
 			return createCondition(rolloutsmanagerv1alpha1.RolloutManagerConditionTypeErrorOccurred, metav1.ConditionTrue, rolloutsmanagerv1alpha1.RolloutManagerReasonMultipleClusterScopedRolloutManager, err.Error()), err
