@@ -18,7 +18,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 		return createCondition(err.Error()), err
 	}
 
-	log.Info("reconciling rollouts serviceaccount")
+	log.Info("reconciling rollouts ServiceAccount")
 	sa, err := r.reconcileRolloutsServiceAccount(ctx, cr)
 	if err != nil {
 		return createCondition(err.Error()), err
@@ -28,13 +28,13 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 	var clusterRole *rbacv1.ClusterRole
 
 	if cr.Spec.NamespaceScoped {
-		log.Info("reconciling rollouts roles")
+		log.Info("reconciling rollouts Roles")
 		role, err = r.reconcileRolloutsRole(ctx, cr)
 		if err != nil {
 			return createCondition(err.Error()), err
 		}
 	} else {
-		log.Info("reconciling rollouts roles")
+		log.Info("reconciling rollouts ClusterRoles")
 		clusterRole, err = r.reconcileRolloutsClusterRole(ctx, cr)
 		if err != nil {
 			return createCondition(err.Error()), err
@@ -57,7 +57,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 	}
 
 	if cr.Spec.NamespaceScoped {
-		log.Info("reconciling rollouts role roleBindings")
+		log.Info("reconciling rollouts role RoleBindings")
 		if err := r.reconcileRolloutsRoleBinding(ctx, cr, role, sa); err != nil {
 			return createCondition(err.Error()), err
 		}
@@ -68,7 +68,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 		}
 	}
 
-	log.Info("reconciling rollouts secret")
+	log.Info("reconciling rollouts Secret")
 	if err := r.reconcileRolloutsSecrets(ctx, cr); err != nil {
 		return createCondition(err.Error()), err
 	}
@@ -79,7 +79,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 		return err
 	}
 
-	log.Info("reconciling rollouts deployment")
+	log.Info("reconciling rollouts Deployment")
 	if err := r.reconcileRolloutsDeployment(ctx, cr, sa); err != nil {
 		return createCondition(err.Error()), err
 	}
