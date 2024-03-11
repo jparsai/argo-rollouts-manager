@@ -56,7 +56,7 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 			rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
 
 		By("Check expected resources are created.")
-		validateArgoRolloutManagerResources(ctx, rm, r.Client, true)
+		validateArgoRolloutManagerResources(rm, r.Client, true)
 
 		By("Check ClusterRole and ClusterRoleBinding are not created.")
 
@@ -98,7 +98,7 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 			rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
 
 		By("Check expected resources are created.")
-		validateArgoRolloutManagerResources(ctx, rm, r.Client, false)
+		validateArgoRolloutManagerResources(rm, r.Client, false)
 
 		By("Check Role and RoleBinding are not created.")
 
@@ -168,7 +168,7 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 	})
 })
 
-func validateArgoRolloutManagerResources(ctx context.Context, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager, k8sClient client.Client, namespaceScoped bool) {
+func validateArgoRolloutManagerResources(rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager, k8sClient client.Client, namespaceScoped bool) {
 
 	By("Verify that ServiceAccount is created.")
 	validateServiceAccount(k8sClient, rolloutsManager)
@@ -178,17 +178,17 @@ func validateArgoRolloutManagerResources(ctx context.Context, rolloutsManager *r
 		validateArgoRolloutsRole(k8sClient, rolloutsManager)
 	} else {
 		By("Verify that argo-rollout ClusterRoles is created.")
-		validateArgoRolloutsClusterRole(k8sClient, rolloutsManager)
+		validateArgoRolloutsClusterRole(k8sClient)
 	}
 
 	By("Verify that aggregate-to-admin ClusterRole is created.")
-	validateAggregateToAdminClusterRole(k8sClient, rolloutsManager)
+	validateAggregateToAdminClusterRole(k8sClient)
 
 	By("Verify that aggregate-to-edit ClusterRole is created.")
-	validateAggregateToEditClusterRole(k8sClient, rolloutsManager)
+	validateAggregateToEditClusterRole(k8sClient)
 
 	By("Verify that aggregate-to-view ClusterRole is created.")
-	validateAggregateToViewClusterRole(k8sClient, rolloutsManager)
+	validateAggregateToViewClusterRole(k8sClient)
 
 	if namespaceScoped {
 		By("Verify that RoleBinding is created.")
@@ -205,7 +205,7 @@ func validateArgoRolloutManagerResources(ctx context.Context, rolloutsManager *r
 	validateSecret(k8sClient, rolloutsManager)
 
 	By("Verify that argo rollouts Deployment is created and it is in Ready state.")
-	validateDeployment(ctx, k8sClient, rolloutsManager)
+	validateDeployment(k8sClient, rolloutsManager)
 }
 
 func validateServiceAccount(k8sClient client.Client, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager) {
@@ -237,7 +237,7 @@ func validateArgoRolloutsRole(k8sClient client.Client, rolloutsManager *rollouts
 	Expect(role.Rules).To(ConsistOf(GetPolicyRules()))
 }
 
-func validateArgoRolloutsClusterRole(k8sClient client.Client, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager) {
+func validateArgoRolloutsClusterRole(k8sClient client.Client) {
 	clusterRole := &rbacv1.ClusterRole{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: DefaultArgoRolloutsResourceName,
@@ -252,7 +252,7 @@ func validateArgoRolloutsClusterRole(k8sClient client.Client, rolloutsManager *r
 	Expect(clusterRole.Rules).To(ConsistOf(GetPolicyRules()))
 }
 
-func validateAggregateToAdminClusterRole(k8sClient client.Client, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager) {
+func validateAggregateToAdminClusterRole(k8sClient client.Client) {
 
 	aggregationType := "aggregate-to-admin"
 	clusterRoleName := fmt.Sprintf("%s-%s", DefaultArgoRolloutsResourceName, aggregationType)
@@ -269,7 +269,7 @@ func validateAggregateToAdminClusterRole(k8sClient client.Client, rolloutsManage
 	Expect(clusterRole.Rules).To(ConsistOf(GetAggregateToAdminPolicyRules()))
 }
 
-func validateAggregateToEditClusterRole(k8sClient client.Client, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager) {
+func validateAggregateToEditClusterRole(k8sClient client.Client) {
 
 	aggregationType := "aggregate-to-edit"
 	clusterRoleName := fmt.Sprintf("%s-%s", DefaultArgoRolloutsResourceName, aggregationType)
@@ -287,7 +287,7 @@ func validateAggregateToEditClusterRole(k8sClient client.Client, rolloutsManager
 	Expect(clusterRole.Rules).To(ConsistOf(GetAggregateToEditPolicyRules()))
 }
 
-func validateAggregateToViewClusterRole(k8sClient client.Client, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager) {
+func validateAggregateToViewClusterRole(k8sClient client.Client) {
 
 	aggregationType := "aggregate-to-view"
 	clusterRoleName := fmt.Sprintf("%s-%s", DefaultArgoRolloutsResourceName, aggregationType)
@@ -409,7 +409,7 @@ func validateSecret(k8sClient client.Client, rolloutsManager *rolloutsmanagerv1a
 	Expect(secret.Type).To(Equal(corev1.SecretTypeOpaque))
 }
 
-func validateDeployment(ctx context.Context, k8sClient client.Client, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager) {
+func validateDeployment(k8sClient client.Client, rolloutsManager *rolloutsmanagerv1alpha1.RolloutManager) {
 	depl := appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      DefaultArgoRolloutsResourceName,
