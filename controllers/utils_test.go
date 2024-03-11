@@ -15,7 +15,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	"github.com/go-logr/logr"
 	logger "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -23,7 +22,6 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 
 	var (
 		ctx             context.Context
-		log             logr.Logger
 		k8sClient       client.WithWatch
 		rolloutsManager rolloutsmanagerv1alpha1.RolloutManager
 	)
@@ -54,7 +52,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
 
 			By("Verify there is no error returned.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, log)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
 		})
 	})
 
@@ -66,7 +64,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
 
 			By("1st RM: Verify there is no error returned, as only one RM is created yet.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, log)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
 
 			By("2nd RM: Create namespace scoped RM.")
 			rolloutsManager2 := rolloutsmanagerv1alpha1.RolloutManager{
@@ -81,11 +79,11 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager2)).To(Succeed())
 
 			By("2nd RM: Verify there is no error returned, as all namespace scoped RMs are created.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2, log)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2)).To(Succeed())
 
 			By("1st RM: Recheck and it should still work, as all namespace scoped RMs are created.")
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rolloutsManager.Name, Namespace: rolloutsManager.Namespace}, &rolloutsManager)).To(Succeed())
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, log)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
 		})
 	})
 
@@ -96,7 +94,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
 
 			By("1st RM: Verify there is no error returned, as only one RM is created yet.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, log)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
 
 			By("2nd RM: Create namespace scoped RM.")
 			rolloutsManager2 := rolloutsmanagerv1alpha1.RolloutManager{
@@ -111,7 +109,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager2)).To(Succeed())
 
 			By("2nd RM: It should return error.")
-			err := checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2, log)
+			err := checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2)
 			Expect(err).To(HaveOccurred())
 			Expect(multipleRolloutManagersExist(err)).To(BeTrue())
 			Expect(rolloutsManager2.Status.Phase).To(Equal(rolloutsmanagerv1alpha1.PhaseFailure))
@@ -120,7 +118,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			By("1st RM: Recheck 1st RM and it should also have error now. since multiple RMs are created.")
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rolloutsManager2.Name, Namespace: rolloutsManager2.Namespace}, &rolloutsManager2)).To(Succeed())
 
-			err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, log)
+			err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)
 			Expect(err).To(HaveOccurred())
 			Expect(multipleRolloutManagersExist(err)).To(BeTrue())
 			Expect(rolloutsManager.Status.Phase).To(Equal(rolloutsmanagerv1alpha1.PhaseFailure))

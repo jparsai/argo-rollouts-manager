@@ -83,7 +83,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRole(ctx context.Context, cr
 }
 
 // Reconciles argo-rollouts clusterRole.
-func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) (*rbacv1.ClusterRole, error) {
+func (r *RolloutManagerReconciler) reconcileRolloutsClusterRole(ctx context.Context) (*rbacv1.ClusterRole, error) {
 
 	expectedPolicyRules := GetPolicyRules()
 
@@ -176,7 +176,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsRoleBinding(ctx context.Cont
 }
 
 // Reconcile rollouts clusterRoleBinding.
-func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager, clusterRole *rbacv1.ClusterRole, sa *corev1.ServiceAccount) error {
+func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx context.Context, clusterRole *rbacv1.ClusterRole, sa *corev1.ServiceAccount) error {
 
 	if clusterRole == nil {
 		return fmt.Errorf("received ClusterRole is nil while reconciling ClusterRoleBinding")
@@ -232,7 +232,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsClusterRoleBinding(ctx conte
 }
 
 // Reconciles aggregate-to-admin ClusterRole.
-func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToAdminClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) error {
+func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToAdminClusterRole(ctx context.Context) error {
 
 	var aggregationType string = "aggregate-to-admin"
 	name := fmt.Sprintf("%s-%s", DefaultArgoRolloutsResourceName, aggregationType)
@@ -267,7 +267,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToAdminClusterRole(
 }
 
 // Reconciles aggregate-to-edit ClusterRole.
-func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToEditClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) error {
+func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToEditClusterRole(ctx context.Context) error {
 
 	var aggregationType string = "aggregate-to-edit"
 	name := fmt.Sprintf("%s-%s", DefaultArgoRolloutsResourceName, aggregationType)
@@ -302,7 +302,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToEditClusterRole(c
 }
 
 // Reconciles aggregate-to-view ClusterRole.
-func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToViewClusterRole(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) error {
+func (r *RolloutManagerReconciler) reconcileRolloutsAggregateToViewClusterRole(ctx context.Context) error {
 
 	var aggregationType string = "aggregate-to-view"
 	name := fmt.Sprintf("%s-%s", DefaultArgoRolloutsResourceName, aggregationType)

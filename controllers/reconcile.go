@@ -11,7 +11,7 @@ import (
 func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) (metav1.Condition, error) {
 
 	log.Info("Searching for existing RolloutManager")
-	if err := checkForExistingRolloutManager(ctx, r.Client, cr, log); err != nil {
+	if err := checkForExistingRolloutManager(ctx, r.Client, cr); err != nil {
 		if multipleRolloutManagersExist(err) {
 			return createCondition(err.Error(), rolloutsmanagerv1alpha1.RolloutManagerReasonMultipleClusterScopedRolloutManager), nil
 		}
@@ -35,24 +35,24 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 		}
 	} else {
 		log.Info("reconciling rollouts ClusterRoles")
-		clusterRole, err = r.reconcileRolloutsClusterRole(ctx, cr)
+		clusterRole, err = r.reconcileRolloutsClusterRole(ctx)
 		if err != nil {
 			return createCondition(err.Error()), err
 		}
 	}
 
 	log.Info("reconciling aggregate-to-admin ClusterRole")
-	if err := r.reconcileRolloutsAggregateToAdminClusterRole(ctx, cr); err != nil {
+	if err := r.reconcileRolloutsAggregateToAdminClusterRole(ctx); err != nil {
 		return createCondition(err.Error()), err
 	}
 
 	log.Info("reconciling aggregate-to-edit ClusterRole")
-	if err := r.reconcileRolloutsAggregateToEditClusterRole(ctx, cr); err != nil {
+	if err := r.reconcileRolloutsAggregateToEditClusterRole(ctx); err != nil {
 		return createCondition(err.Error()), err
 	}
 
 	log.Info("reconciling aggregate-to-view ClusterRole")
-	if err := r.reconcileRolloutsAggregateToViewClusterRole(ctx, cr); err != nil {
+	if err := r.reconcileRolloutsAggregateToViewClusterRole(ctx); err != nil {
 		return createCondition(err.Error()), err
 	}
 
@@ -63,7 +63,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 		}
 	} else {
 		log.Info("reconciling rollouts clusterRoleBinding")
-		if err := r.reconcileRolloutsClusterRoleBinding(ctx, cr, clusterRole, sa); err != nil {
+		if err := r.reconcileRolloutsClusterRoleBinding(ctx, clusterRole, sa); err != nil {
 			return createCondition(err.Error()), err
 		}
 	}
@@ -76,7 +76,7 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 	// reconcile configMap for plugins
 	log.Info("reconciling configMap for plugins")
 	if err := r.reconcileConfigMap(ctx, cr); err != nil {
-		return err
+		return createCondition(err.Error()), err
 	}
 
 	log.Info("reconciling rollouts Deployment")

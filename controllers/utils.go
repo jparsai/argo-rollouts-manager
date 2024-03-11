@@ -144,7 +144,7 @@ func isMergable(extraArgs []string, cmd []string) error {
 
 // checkForExistingRolloutManager will return error if more than one cluster scoped RolloutManagers are created or combination of a cluster and namespace scoped RolloutManagers are created.
 // because only one cluster scoped or all namespace scoped RolloutManagers are supported.
-func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager, log logr.Logger) error {
+func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager) error {
 
 	rolloutManagerList := rolloutsmanagerv1alpha1.RolloutManagerList{}
 	if err := client.List(ctx, &rolloutManagerList); err != nil {
