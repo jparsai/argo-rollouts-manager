@@ -16,6 +16,7 @@ import (
 
 	rmv1alpha1 "github.com/argoproj-labs/argo-rollouts-manager/api/v1alpha1"
 
+	controllers "github.com/argoproj-labs/argo-rollouts-manager/controllers"
 	rv1alpha1 "github.com/argoproj/argo-rollouts/pkg/apis/rollouts/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -50,7 +51,7 @@ var _ = Describe("Namespace Scoped RolloutManager tests", func() {
 			After creation of RM operator should create required resources (ServiceAccount, Roles, RoleBinding, Service, Secret, Deployment) in namespace.
 			Now when a Rollouts CR is created in a same namespace, operator should be able to reconcile it.
 		*/
-		FIt("After creating namespace scoped RolloutManager in a namespace, operator should create appropriate K8s resources and watch argo rollouts CR in same namespace.", func() {
+		It("After creating namespace scoped RolloutManager in a namespace, operator should create appropriate K8s resources and watch argo rollouts CR in same namespace.", func() {
 
 			nsName := "test-rom-ns"
 			labels := map[string]string{"app": "test-argo-app"}
@@ -88,7 +89,7 @@ var _ = Describe("Namespace Scoped RolloutManager tests", func() {
 			After creation of RMs operator should create required resources (ServiceAccount, Roles, RoleBinding, Service, Secret, Deployment) in each namespace.
 			Now when a Rollouts CR is created in each namespace, operator should be able to reconcile all of them.
 		*/
-		It("After creating namespace scoped RolloutManager in a namespace, another namespace scoped RolloutManager should still be allowed.", func() {
+		It("After creating namespace scoped RolloutManager in a namespace, another namespace scoped RolloutManager in different namespace should also work.", func() {
 
 			nsName := "test-rom-ns"
 
@@ -194,6 +195,72 @@ var _ = Describe("Namespace Scoped RolloutManager tests", func() {
 			}, "1m", "1s").Should(
 				BeTrue(),
 			)
+		})
+
+		/*
+			In this test a namespace scoped RolloutManager is created in a namespace.
+			After creation of RM operator should create required resources (ServiceAccount, Roles, RoleBinding, Service, Secret, Deployment) in namespace.
+			Now when a cluster scoped RolloutManager is created, it should not be accepted by operator, since there in an existing RolloutManager watching a namespace.
+			When namespace scoped RolloutManager is reconciled again it should also have error, because only one cluster scoped or all namespace scoped RolloutManagers are supported.
+		*/
+		It("Should allow namespace scoped RolloutManager, but not cluster scoped.", func() {
+
+			nsName := "test-ro-ns"
+
+			By("Create namespace scoped RolloutManager in a namespace.")
+			rolloutsManagerNs, err := utils.CreateRolloutManager(ctx, k8sClient, "test-rollouts-manager-1", fixture.TestE2ENamespace, true)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verify that RolloutManager is successfully created.")
+			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhaseAvailable))
+
+			By("Verify that Status.Condition is set.")
+			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HaveCondition(
+				metav1.Condition{
+					Type:    rmv1alpha1.RolloutManagerConditionType,
+					Status:  metav1.ConditionTrue,
+					Reason:  rmv1alpha1.RolloutManagerReasonSuccess,
+					Message: "",
+				}))
+
+			By("Create a different namespace.")
+			Expect(utils.CreateNamespace(ctx, k8sClient, nsName)).To(Succeed())
+
+			By("Create cluster scoped RolloutManager in different namespace.")
+			rolloutsManagerCl, err := utils.CreateRolloutManager(ctx, k8sClient, "test-rollouts-manager-2", nsName, false)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verify that RolloutManager is not working.")
+			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhaseFailure))
+
+			By("Verify that Status.Condition is having error message.")
+			Eventually(rolloutsManagerCl, "1m", "1s").Should(rmFixture.HaveCondition(
+				metav1.Condition{
+					Type:    rmv1alpha1.RolloutManagerConditionType,
+					Status:  metav1.ConditionFalse,
+					Reason:  rmv1alpha1.RolloutManagerReasonInvalidScoped,
+					Message: controllers.UnsupportedRolloutManagerClusterScoped,
+				}))
+
+			By("Update namespace scoped RolloutManager, it should still work.")
+
+			err = k8sClient.Get(ctx, client.ObjectKeyFromObject(&rolloutsManagerNs), &rolloutsManagerNs)
+			Expect(err).ToNot(HaveOccurred())
+			rolloutsManagerNs.Spec.Env = append(rolloutsManagerNs.Spec.Env, corev1.EnvVar{Name: "test-name", Value: "test-value"})
+			err = k8sClient.Update(ctx, &rolloutsManagerNs)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Verify that now namespace scoped RolloutManager is still working.")
+			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HavePhase(rmv1alpha1.PhaseAvailable))
+
+			By("Verify that Status.Condition is not having error message.")
+			Eventually(rolloutsManagerNs, "1m", "1s").Should(rmFixture.HaveCondition(
+				metav1.Condition{
+					Type:    rmv1alpha1.RolloutManagerConditionType,
+					Status:  metav1.ConditionTrue,
+					Reason:  rmv1alpha1.RolloutManagerReasonSuccess,
+					Message: "",
+				}))
 		})
 	})
 })
