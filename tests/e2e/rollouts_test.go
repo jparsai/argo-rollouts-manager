@@ -51,7 +51,7 @@ var _ = Describe("RolloutManager tests", func() {
 		})
 
 		When("Reconcile is called on a new, basic, namespaced-scoped RolloutManager", func() {
-			FIt("should create the appropriate K8s resources", func() {
+			It("should create the appropriate K8s resources", func() {
 				Expect(k8sClient.Create(ctx, &rolloutManager)).To(Succeed())
 
 				By("setting the phase to \"Available\"")
@@ -150,12 +150,12 @@ var _ = Describe("RolloutManager tests", func() {
 		When("A RolloutManager specifies environment variables", func() {
 			It("should reflect those variables in the deployment", func() {
 				By("creating the deployment with the environment variables specified in the RolloutManager")
-				rolloutManager.Spec = rolloutsmanagerv1alpha1.RolloutManagerSpec{
-					Env: []corev1.EnvVar{
-						{Name: "EDITOR", Value: "emacs"},
-						{Name: "LANG", Value: "en_CA.UTF-8"},
-					},
+
+				rolloutManager.Spec.Env = []corev1.EnvVar{
+					{Name: "EDITOR", Value: "emacs"},
+					{Name: "LANG", Value: "en_CA.UTF-8"},
 				}
+
 				Expect(k8sClient.Create(ctx, &rolloutManager)).To(Succeed())
 				Eventually(rolloutManager, "1m", "1s").Should(rolloutManagerFixture.HavePhase(rolloutsmanagerv1alpha1.PhaseAvailable))
 
@@ -173,12 +173,11 @@ var _ = Describe("RolloutManager tests", func() {
 
 				By("updating the deployment when the environment variables in the RolloutManager are updated")
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&rolloutManager), &rolloutManager)).To(Succeed())
-				rolloutManager.Spec = rolloutsmanagerv1alpha1.RolloutManagerSpec{
-					Env: []corev1.EnvVar{
-						{Name: "LANG", Value: "en_US.UTF-8"},
-						{Name: "TERM", Value: "xterm-256color"},
-					},
+				rolloutManager.Spec.Env = []corev1.EnvVar{
+					{Name: "LANG", Value: "en_US.UTF-8"},
+					{Name: "TERM", Value: "xterm-256color"},
 				}
+
 				Expect(k8sClient.Update(ctx, &rolloutManager)).To(Succeed())
 				Eventually(func() []corev1.EnvVar {
 					Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&deployment), &deployment)).To(Succeed())
@@ -196,10 +195,10 @@ var _ = Describe("RolloutManager tests", func() {
 		When("A RolloutManager specifies an image", func() {
 			It("should reflect that image in the deployment", func() {
 				By("creating the deployment with the image specified in the RolloutManager")
-				rolloutManager.Spec = rolloutsmanagerv1alpha1.RolloutManagerSpec{
-					Image:   "quay.io/prometheus/busybox",
-					Version: "latest",
-				}
+
+				rolloutManager.Spec.Image = "quay.io/prometheus/busybox"
+				rolloutManager.Spec.Version = "latest"
+
 				Expect(k8sClient.Create(ctx, &rolloutManager)).To(Succeed())
 				Eventually(rolloutManager, "1m", "1s").Should(rolloutManagerFixture.HavePhase(rolloutsmanagerv1alpha1.PhasePending))
 
@@ -213,10 +212,10 @@ var _ = Describe("RolloutManager tests", func() {
 
 				By("updating the deployment when the image in the RolloutManager is updated")
 				Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&rolloutManager), &rolloutManager)).To(Succeed())
-				rolloutManager.Spec = rolloutsmanagerv1alpha1.RolloutManagerSpec{
-					Image:   controllers.DefaultArgoRolloutsImage,
-					Version: controllers.DefaultArgoRolloutsVersion,
-				}
+
+				rolloutManager.Spec.Image = controllers.DefaultArgoRolloutsImage
+				rolloutManager.Spec.Version = controllers.DefaultArgoRolloutsVersion
+
 				Expect(k8sClient.Update(ctx, &rolloutManager)).To(Succeed())
 				expectedVersion = controllers.DefaultArgoRolloutsImage + ":" + controllers.DefaultArgoRolloutsVersion
 				Eventually(func() string {

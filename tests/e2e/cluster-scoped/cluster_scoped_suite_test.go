@@ -100,6 +100,16 @@ var _ = BeforeSuite(func() {
 	}()
 })
 
+var _ = AfterSuite(func() {
+
+	By("delete environment variable")
+	Expect(os.Unsetenv(controllers.NamespaceScopedArgoRolloutsController)).To(Succeed())
+
+	By("tearing down the test environment")
+	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+})
+
 func TestClusterScoped(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "ClusterScoped Suite")

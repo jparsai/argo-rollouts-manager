@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	UnsupportedRolloutManagerConfiguration   = "when there exists a cluster-scoped RolloutManager on the cluster, there may not exist any other RolloutManagers on the cluster: only a single cluster-scoped RolloutManager, or multple namespace-scoped RolloutManagers, are supported, but not both"
+	UnsupportedRolloutManagerConfiguration   = "when there exists a cluster-scoped RolloutManager on the cluster, there may not exist another: only a single cluster-scoped RolloutManager is supported."
 	UnsupportedRolloutManagerClusterScoped   = "when there exists a Subscription having environmet variable NAMESPACE_SCOPED_ARGO_ROLLOUTS set to True, there may not exist any cluster-scoped RolloutManager in namespace: only a single namespace-scoped RolloutManager is supported in namespace."
 	UnsupportedRolloutManagerNamespaceScoped = "when there exists a Subscription having environmet variable NAMESPACE_SCOPED_ARGO_ROLLOUTS set to False, there may not exist any namespace-scoped RolloutManager in namespace: only a single cluster-scoped RolloutManager is supported in namespace."
 )
@@ -180,7 +180,7 @@ func validateRolloutsScope(ctx context.Context, client client.Client, cr *rollou
 // because only one cluster scoped or all namespace scoped RolloutManagers are supported.
 func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager, namespaceScopedArgoRolloutsController bool) error {
 
-	if namespaceScopedArgoRolloutsController && cr.Spec.NamespaceScoped {
+	if cr.Spec.NamespaceScoped {
 		return nil
 	}
 
@@ -197,6 +197,10 @@ func checkForExistingRolloutManager(ctx context.Context, client client.Client, c
 	// if there are more than one rollout managers available, then check if any cluster scoped rollout manager exists,
 	// if yes then skip reconciliation of this CR, because only one cluster scoped or all namespace scoped rollout managers are supported
 	for _, rolloutManager := range rolloutManagerList.Items {
+
+		if rolloutManager.Name == cr.Name && rolloutManager.Namespace == cr.Namespace {
+			continue
+		}
 
 		// if there is a cluster scoped rollout manager then skip reconciliation of this CR and set status to pending.
 		if !rolloutManager.Spec.NamespaceScoped {
