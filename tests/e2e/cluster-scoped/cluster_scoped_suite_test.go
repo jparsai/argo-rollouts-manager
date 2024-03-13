@@ -35,14 +35,14 @@ var _ = BeforeSuite(func() {
 	useActualCluster := true
 	testEnv = &envtest.Environment{
 		CRDDirectoryPaths: []string{
-			filepath.Join("../..", "config", "crd", "bases"),
+			filepath.Join("../../..", "config", "crd", "bases"),
 		},
 		UseExistingCluster:    &useActualCluster, // use an actual OpenShift cluster specified in kubeconfig
 		ErrorIfCRDPathMissing: true,
 	}
 
-	// Set the environment variable for namespace scope of Rollouts
-	Expect(os.Setenv(controllers.NamespaceScopedArgoRolloutsController, "true")).To(Succeed())
+	// Set the environment variable for cluster scope of Rollouts
+	Expect(os.Setenv(controllers.NamespaceScopedArgoRolloutsController, "false")).To(Succeed())
 
 	cfg, err := testEnv.Start()
 	Expect(err).NotTo(HaveOccurred())
@@ -100,10 +100,7 @@ var _ = BeforeSuite(func() {
 	}()
 })
 
-func TestArgoRolloutsManager(t *testing.T) {
-	suiteConfig, _ := GinkgoConfiguration()
-
+func TestClusterScoped(t *testing.T) {
 	RegisterFailHandler(Fail)
-
-	RunSpecs(t, "argo-rollouts-manager suite", suiteConfig)
+	RunSpecs(t, "ClusterScoped Suite")
 }

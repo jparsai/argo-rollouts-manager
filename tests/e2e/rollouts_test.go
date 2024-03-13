@@ -51,14 +51,14 @@ var _ = Describe("RolloutManager tests", func() {
 		})
 
 		When("Reconcile is called on a new, basic, namespaced-scoped RolloutManager", func() {
-			It("should create the appropriate K8s resources", func() {
+			FIt("should create the appropriate K8s resources", func() {
 				Expect(k8sClient.Create(ctx, &rolloutManager)).To(Succeed())
 
 				By("setting the phase to \"Available\"")
 				Eventually(rolloutManager, "60s", "1s").Should(rolloutManagerFixture.HavePhase(rolloutsmanagerv1alpha1.PhaseAvailable))
 
 				By("Verify that expected resources are created.")
-				validateArgoRolloutManagerResources(ctx, rolloutManager, k8sClient, true)
+				ValidateArgoRolloutManagerResources(ctx, rolloutManager, k8sClient, true)
 			})
 		})
 

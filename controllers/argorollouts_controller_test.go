@@ -15,7 +15,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -30,141 +32,277 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 		rm = makeTestRolloutManager()
 	})
 
-	It("Should create expected resource when namespace scoped RolloutManager CR is reconciled.", func() {
-		// Make RolloutManager namespace scoped
-		rm.Spec.NamespaceScoped = true
+	//
+	//
+	// todo test to allow only one CR in one namespace
+	//
+	//
+	When("NAMESPACE_SCOPED_ARGO_ROLLOUTS environment variable is set to False.", func() {
 
-		r := makeTestReconciler(rm)
-		Expect(createNamespace(r, rm.Namespace)).To(Succeed())
+		It("Should allow cluster-scoped RolloutManager CR to be reconciled and create expected resource.", func() {
 
-		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      rm.Name,
-				Namespace: rm.Namespace,
-			},
-		}
+			By("Create cluster-scoped RolloutManager.")
+			r := makeTestReconciler(rm)
+			Expect(createNamespace(r, rm.Namespace)).To(Succeed())
 
-		res, err := r.Reconcile(ctx, req)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm.Name,
+					Namespace: rm.Namespace,
+				},
+			}
 
-		By("Check if RolloutManager's Status.Conditions are set.")
-		Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
-		Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
-			rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
-			rm.Status.Conditions[0].Message == "" &&
-			rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
+			res, err := r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
 
-		By("Check expected resources are created.")
-		validateArgoRolloutManagerResources(rm, r.Client, true)
+			By("Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
+				rm.Status.Conditions[0].Message == "" &&
+				rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
 
-		By("Check ClusterRole and ClusterRoleBinding are not created.")
+			By("Check expected resources are created.")
+			validateArgoRolloutManagerResources(rm, r.Client, false)
 
-		clusterRole := &rbacv1.ClusterRole{}
-		err = r.Client.Get(ctx, types.NamespacedName{
-			Name:      DefaultArgoRolloutsResourceName,
-			Namespace: testNamespace,
-		}, clusterRole)
-		Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRole should not be created")
+			By("Check Role and RoleBinding are not created.")
 
-		clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
-		err = r.Client.Get(ctx, types.NamespacedName{
-			Name:      DefaultArgoRolloutsResourceName,
-			Namespace: testNamespace,
-		}, clusterRoleBinding)
-		Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRoleBinding should not be created")
+			role := &rbacv1.Role{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, role)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "Role should not be created")
+
+			roleBinding := &rbacv1.RoleBinding{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, roleBinding)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should not be created")
+		})
+
+		It("Should not allow namespace-scoped RolloutManager CR to be reconciled.", func() {
+
+			By("Create namespace-scoped RolloutManager.")
+			rm.Spec.NamespaceScoped = true
+
+			r := makeTestReconciler(rm)
+			Expect(createNamespace(r, rm.Namespace)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm.Name,
+					Namespace: rm.Namespace,
+				},
+			}
+
+			res, err := r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonInvalidScoped &&
+				rm.Status.Conditions[0].Message == UnsupportedRolloutManagerNamespaceScoped &&
+				rm.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
+		})
+
+		It("If a namespace-scoped RolloutManager is available in cluster, cluster-scoped RolloutManager should still work.", func() {
+
+			s := scheme.Scheme
+			err := rolloutsmanagerv1alpha1.AddToScheme(s)
+			Expect(err).ToNot(HaveOccurred())
+			client := fake.NewClientBuilder().WithScheme(s).Build()
+
+			By("Create cluster-scoped RolloutManager.")
+
+			rm.Spec.NamespaceScoped = true
+			Expect(client.Create(ctx, rm)).To(Succeed())
+
+			By("Create cluster-scoped RolloutManager.")
+			rm2 := makeTestRolloutManager()
+
+			r := makeTestReconciler(rm2)
+			Expect(createNamespace(r, rm2.Namespace)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm2.Name,
+					Namespace: rm2.Namespace,
+				},
+			}
+
+			res, err := r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
+			Expect(rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm2.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
+				rm2.Status.Conditions[0].Message == "" &&
+				rm2.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
+
+			By("Check expected resources are created.")
+			validateArgoRolloutManagerResources(rm2, r.Client, false)
+
+			By("Check Role and RoleBinding are not created.")
+
+			role := &rbacv1.Role{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, role)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "Role should not be created")
+
+			roleBinding := &rbacv1.RoleBinding{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, roleBinding)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should not be created")
+		})
 	})
 
-	It("Should create expected resource when cluster scoped RolloutManager CR is reconciled.", func() {
-		r := makeTestReconciler(rm)
-		Expect(createNamespace(r, rm.Namespace)).To(Succeed())
+	When("NAMESPACE_SCOPED_ARGO_ROLLOUTS environment variable is set to True.", func() {
 
-		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      rm.Name,
-				Namespace: rm.Namespace,
-			},
-		}
+		It("Should allow namespace-scoped RolloutManager CR to be reconciled and create expected resource.", func() {
 
-		res, err := r.Reconcile(ctx, req)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+			By("Create namespace-scoped RolloutManager.")
+			rm.Spec.NamespaceScoped = true
 
-		By("Check if RolloutManager's Status.Conditions are set.")
-		Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
-		Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
-			rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
-			rm.Status.Conditions[0].Message == "" &&
-			rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
+			r := makeTestReconciler(rm)
+			r.NamespaceScopedArgoRolloutsController = true
 
-		By("Check expected resources are created.")
-		validateArgoRolloutManagerResources(rm, r.Client, false)
+			Expect(createNamespace(r, rm.Namespace)).To(Succeed())
 
-		By("Check Role and RoleBinding are not created.")
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm.Name,
+					Namespace: rm.Namespace,
+				},
+			}
 
-		role := &rbacv1.Role{}
-		err = r.Client.Get(ctx, types.NamespacedName{
-			Name:      DefaultArgoRolloutsResourceName,
-			Namespace: testNamespace,
-		}, role)
-		Expect(errors.IsNotFound(err)).To(BeTrue(), "Role should not be created")
+			res, err := r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
 
-		roleBinding := &rbacv1.RoleBinding{}
-		err = r.Client.Get(ctx, types.NamespacedName{
-			Name:      DefaultArgoRolloutsResourceName,
-			Namespace: testNamespace,
-		}, roleBinding)
-		Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should not be created")
-	})
+			By("Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
+				rm.Status.Conditions[0].Message == "" &&
+				rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
 
-	It("Should not allow cluster and namespace scoped RolloutManager CRs together.", func() {
-		r := makeTestReconciler(rm)
-		Expect(createNamespace(r, rm.Namespace)).To(Succeed())
+			By("Check expected resources are created.")
+			validateArgoRolloutManagerResources(rm, r.Client, true)
 
-		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      rm.Name,
-				Namespace: rm.Namespace,
-			},
-		}
+			By("Check ClusterRole and ClusterRoleBinding are not created.")
 
-		res, err := r.Reconcile(ctx, req)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+			clusterRole := &rbacv1.ClusterRole{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, clusterRole)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRole should not be created")
 
-		By("Check if RolloutManager's Status.Conditions are set.")
-		Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
-		Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
-			rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
-			rm.Status.Conditions[0].Message == "" &&
-			rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
+			clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, clusterRoleBinding)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRoleBinding should not be created")
+		})
 
-		rm2 := makeTestRolloutManager()
-		rm2.Name = "test-rm"
-		rm2.Namespace = "test-ns"
+		It("Should not allow cluster-scoped RolloutManager CR to be reconciled.", func() {
 
-		r2 := makeTestReconciler(rm)
+			By("Create cluster-scoped RolloutManager.")
+			r := makeTestReconciler(rm)
+			r.NamespaceScopedArgoRolloutsController = true
+			Expect(createNamespace(r, rm.Namespace)).To(Succeed())
 
-		Expect(createNamespace(r2, rm2.Namespace)).To(Succeed())
-		Expect(r.Client.Create(ctx, rm2)).To(Succeed())
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm.Name,
+					Namespace: rm.Namespace,
+				},
+			}
 
-		req2 := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      rm2.Name,
-				Namespace: rm2.Namespace,
-			},
-		}
+			res, err := r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
 
-		res2, err := r.Reconcile(ctx, req2)
-		Expect(err).ToNot(HaveOccurred())
-		Expect(res2.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+			By("Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
 
-		By("Check if RolloutManager's Status.Conditions are set.")
-		Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
-		Expect(rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
-			rm2.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonMultipleClusterScopedRolloutManager &&
-			rm2.Status.Conditions[0].Message == UnsupportedRolloutManagerConfiguration &&
-			rm2.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonInvalidScoped &&
+				rm.Status.Conditions[0].Message == UnsupportedRolloutManagerClusterScoped &&
+				rm.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
+		})
+
+		It("If a cluster-scoped RolloutManager is available in cluster, namespace-scoped RolloutManager should still work.", func() {
+
+			s := scheme.Scheme
+			err := rolloutsmanagerv1alpha1.AddToScheme(s)
+			Expect(err).ToNot(HaveOccurred())
+			client := fake.NewClientBuilder().WithScheme(s).Build()
+
+			By("Create cluster-scoped RolloutManager.")
+
+			Expect(client.Create(ctx, rm)).To(Succeed())
+
+			By("Create namespace-scoped RolloutManager.")
+			rm2 := makeTestRolloutManager()
+			rm2.Name = "test-rm"
+			rm2.Namespace = "test-ns"
+			rm2.Spec.NamespaceScoped = true
+
+			r := makeTestReconciler(rm2)
+			r.NamespaceScopedArgoRolloutsController = true
+
+			Expect(createNamespace(r, rm2.Namespace)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm2.Name,
+					Namespace: rm2.Namespace,
+				},
+			}
+
+			res, err := r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
+			Expect(rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm2.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
+				rm2.Status.Conditions[0].Message == "" &&
+				rm2.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
+
+			By("Check expected resources are created.")
+			validateArgoRolloutManagerResources(rm2, r.Client, true)
+
+			By("Check ClusterRole and ClusterRoleBinding are not created.")
+
+			clusterRole := &rbacv1.ClusterRole{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, clusterRole)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRole should not be created")
+
+			clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+			err = r.Client.Get(ctx, types.NamespacedName{
+				Name:      DefaultArgoRolloutsResourceName,
+				Namespace: testNamespace,
+			}, clusterRoleBinding)
+			Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRoleBinding should not be created")
+		})
 	})
 })
 

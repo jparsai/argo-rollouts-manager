@@ -11,7 +11,15 @@ import (
 func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context, cr *rolloutsmanagerv1alpha1.RolloutManager) (metav1.Condition, error) {
 
 	log.Info("Searching for existing RolloutManager")
-	if err := checkForExistingRolloutManager(ctx, r.Client, cr); err != nil {
+
+	if err := validateRolloutsScope(ctx, r.Client, cr, r.NamespaceScopedArgoRolloutsController); err != nil {
+		if invalidRolloutScope(err) {
+			return createCondition(err.Error(), rolloutsmanagerv1alpha1.RolloutManagerReasonInvalidScoped), nil
+		}
+		return createCondition(err.Error()), err
+	}
+
+	if err := checkForExistingRolloutManager(ctx, r.Client, cr, r.NamespaceScopedArgoRolloutsController); err != nil {
 		if multipleRolloutManagersExist(err) {
 			return createCondition(err.Error(), rolloutsmanagerv1alpha1.RolloutManagerReasonMultipleClusterScopedRolloutManager), nil
 		}
@@ -73,7 +81,6 @@ func (r *RolloutManagerReconciler) reconcileRolloutsManager(ctx context.Context,
 		return createCondition(err.Error()), err
 	}
 
-	// reconcile configMap for plugins
 	log.Info("reconciling configMap for plugins")
 	if err := r.reconcileConfigMap(ctx, cr); err != nil {
 		return createCondition(err.Error()), err
