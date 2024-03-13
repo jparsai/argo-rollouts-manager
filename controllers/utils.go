@@ -17,7 +17,9 @@ import (
 )
 
 const (
-	UnsupportedRolloutManagerConfiguration = "when there exists a cluster-scoped RolloutManager on the cluster, there may not exist any other RolloutManagers on the cluster: only a single cluster-scoped RolloutManager, or multple namespace-scoped RolloutManagers, are supported, but not both"
+	UnsupportedRolloutManagerConfiguration   = "when there exists a cluster-scoped RolloutManager on the cluster, there may not exist any other RolloutManagers on the cluster: only a single cluster-scoped RolloutManager, or multple namespace-scoped RolloutManagers, are supported, but not both"
+	UnsupportedRolloutManagerClusterScoped   = "when there exists a Subscription having environmet variable NAMESPACE_SCOPED_ARGO_ROLLOUTS set to True, there may not exist any cluster-scoped RolloutManager in namespace: only a single namespace-scoped RolloutManager is supported in namespace."
+	UnsupportedRolloutManagerNamespaceScoped = "when there exists a Subscription having environmet variable NAMESPACE_SCOPED_ARGO_ROLLOUTS set to False, there may not exist any namespace-scoped RolloutManager in namespace: only a single cluster-scoped RolloutManager is supported in namespace."
 )
 
 func setRolloutsLabels(obj *metav1.ObjectMeta) {
@@ -142,9 +144,45 @@ func isMergable(extraArgs []string, cmd []string) error {
 	return nil
 }
 
+func validateRolloutsScope(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager, namespaceScopedArgoRolloutsController bool) error {
+	if namespaceScopedArgoRolloutsController {
+
+		if !cr.Spec.NamespaceScoped {
+			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
+			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
+
+			if err := client.Status().Update(ctx, cr); err != nil {
+				return fmt.Errorf("error updating the RolloutManager CR status: %w", err)
+			}
+
+			return fmt.Errorf(UnsupportedRolloutManagerClusterScoped)
+		}
+
+		return nil
+	} else {
+
+		if cr.Spec.NamespaceScoped {
+			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
+			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
+
+			if err := client.Status().Update(ctx, cr); err != nil {
+				return fmt.Errorf("error updating the RolloutManager CR status: %w", err)
+			}
+
+			return fmt.Errorf(UnsupportedRolloutManagerNamespaceScoped)
+		}
+
+		return nil
+	}
+}
+
 // checkForExistingRolloutManager will return error if more than one cluster scoped RolloutManagers are created or combination of a cluster and namespace scoped RolloutManagers are created.
 // because only one cluster scoped or all namespace scoped RolloutManagers are supported.
-func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager) error {
+func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager, namespaceScopedArgoRolloutsController bool) error {
+
+	if namespaceScopedArgoRolloutsController && cr.Spec.NamespaceScoped {
+		return nil
+	}
 
 	rolloutManagerList := rolloutsmanagerv1alpha1.RolloutManagerList{}
 	if err := client.List(ctx, &rolloutManagerList); err != nil {
@@ -177,6 +215,11 @@ func checkForExistingRolloutManager(ctx context.Context, client client.Client, c
 
 func multipleRolloutManagersExist(err error) bool {
 	return err.Error() == UnsupportedRolloutManagerConfiguration
+}
+
+func invalidRolloutScope(err error) bool {
+	return err.Error() == UnsupportedRolloutManagerClusterScoped ||
+		err.Error() == UnsupportedRolloutManagerNamespaceScoped
 }
 
 // insertOrUpdateConditionsInSlice is a generic function for inserting/updating metav1.Condition into a slice of []metav1.Condition

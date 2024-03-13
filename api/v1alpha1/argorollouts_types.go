@@ -89,6 +89,7 @@ const (
 	RolloutManagerReasonSuccess                             = "Success"
 	RolloutManagerReasonErrorOccurred                       = "ErrorOccurred"
 	RolloutManagerReasonMultipleClusterScopedRolloutManager = "MultipleClusterScopedRolloutManager"
+	RolloutManagerReasonInvalidScoped                       = "InvalidRolloutManagerScope"
 )
 
 //+kubebuilder:object:root=true

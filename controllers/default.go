@@ -23,4 +23,8 @@ const (
 
 	// DefaultRolloutsConfigMapName is the default name of the ConfigMap that contains the Rollouts controller configuration
 	DefaultRolloutsConfigMapName = "argo-rollouts-config"
+
+	// NamespaceScopedArgoRolloutsController is an environment variable that can be used to configure scope of Argo Rollouts controller
+	// Set true for namespace scoped Argo Rollouts controller deployment and false for cluster scoped
+	NamespaceScopedArgoRolloutsController = "NAMESPACE_SCOPED_ARGO_ROLLOUTS"
 )

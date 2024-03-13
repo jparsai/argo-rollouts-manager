@@ -52,7 +52,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
 
 			By("Verify there is no error returned.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, false)).To(Succeed())
 		})
 	})
 
@@ -64,7 +64,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
 
 			By("1st RM: Verify there is no error returned, as only one RM is created yet.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, false)).To(Succeed())
 
 			By("2nd RM: Create namespace scoped RM.")
 			rolloutsManager2 := rolloutsmanagerv1alpha1.RolloutManager{
@@ -79,11 +79,11 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager2)).To(Succeed())
 
 			By("2nd RM: Verify there is no error returned, as all namespace scoped RMs are created.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2, false)).To(Succeed())
 
 			By("1st RM: Recheck and it should still work, as all namespace scoped RMs are created.")
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rolloutsManager.Name, Namespace: rolloutsManager.Namespace}, &rolloutsManager)).To(Succeed())
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, false)).To(Succeed())
 		})
 	})
 
@@ -94,7 +94,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
 
 			By("1st RM: Verify there is no error returned, as only one RM is created yet.")
-			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)).To(Succeed())
+			Expect(checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, false)).To(Succeed())
 
 			By("2nd RM: Create namespace scoped RM.")
 			rolloutsManager2 := rolloutsmanagerv1alpha1.RolloutManager{
@@ -109,7 +109,7 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			Expect(k8sClient.Create(ctx, &rolloutsManager2)).To(Succeed())
 
 			By("2nd RM: It should return error.")
-			err := checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2)
+			err := checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager2, false)
 			Expect(err).To(HaveOccurred())
 			Expect(multipleRolloutManagersExist(err)).To(BeTrue())
 			Expect(rolloutsManager2.Status.Phase).To(Equal(rolloutsmanagerv1alpha1.PhaseFailure))
@@ -118,11 +118,89 @@ var _ = Describe("checkForExistingRolloutManager tests", func() {
 			By("1st RM: Recheck 1st RM and it should also have error now. since multiple RMs are created.")
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rolloutsManager2.Name, Namespace: rolloutsManager2.Namespace}, &rolloutsManager2)).To(Succeed())
 
-			err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager)
+			err = checkForExistingRolloutManager(ctx, k8sClient, &rolloutsManager, false)
 			Expect(err).To(HaveOccurred())
 			Expect(multipleRolloutManagersExist(err)).To(BeTrue())
 			Expect(rolloutsManager.Status.Phase).To(Equal(rolloutsmanagerv1alpha1.PhaseFailure))
 			Expect(rolloutsManager.Status.RolloutController).To(Equal(rolloutsmanagerv1alpha1.PhaseFailure))
+		})
+	})
+})
+
+var _ = Describe("validateRolloutsScope tests", func() {
+
+	var (
+		ctx             context.Context
+		k8sClient       client.WithWatch
+		rolloutsManager rolloutsmanagerv1alpha1.RolloutManager
+	)
+
+	BeforeEach(func() {
+		s := scheme.Scheme
+		Expect(rolloutsmanagerv1alpha1.AddToScheme(s)).To(Succeed())
+
+		ctx = context.Background()
+		log = logger.FromContext(ctx)
+		k8sClient = fake.NewClientBuilder().WithScheme(s).Build()
+
+		rolloutsManager = rolloutsmanagerv1alpha1.RolloutManager{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-rm-1",
+				Namespace: "test-ns-1",
+			},
+			Spec: rolloutsmanagerv1alpha1.RolloutManagerSpec{
+				NamespaceScoped: false,
+			},
+		}
+	})
+
+	When("NAMESPACE_SCOPED_ARGO_ROLLOUTS environment variable is set to True.", func() {
+		namespaceScopedArgoRolloutsController := true
+		It("should return error, if cluster-scoped RolloutManager is created.", func() {
+
+			By("Create cluster-scoped RolloutManager.")
+			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
+
+			By("Verify an error is returned.")
+			err := validateRolloutsScope(ctx, k8sClient, &rolloutsManager, namespaceScopedArgoRolloutsController)
+
+			Expect(err).To(HaveOccurred())
+			Expect(invalidRolloutScope(err)).To(BeTrue())
+		})
+
+		It("should not return any error, if namespace-scoped RolloutManager is created.", func() {
+
+			By("Create namespace-scoped RolloutManager.")
+			rolloutsManager.Spec.NamespaceScoped = true
+			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
+
+			By("Verify there is no error returned.")
+			Expect(validateRolloutsScope(ctx, k8sClient, &rolloutsManager, namespaceScopedArgoRolloutsController)).To(Succeed())
+		})
+	})
+
+	When("NAMESPACE_SCOPED_ARGO_ROLLOUTS environment variable is set to False.", func() {
+		namespaceScopedArgoRolloutsController := false
+		It("should not return error, if cluster-scoped RolloutManager is created.", func() {
+
+			By("Create cluster-scoped RolloutManager.")
+			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
+
+			By("Verify there is no error returned.")
+			Expect(validateRolloutsScope(ctx, k8sClient, &rolloutsManager, namespaceScopedArgoRolloutsController)).To(Succeed())
+		})
+
+		It("should return error, if namespace-scoped RolloutManager is created.", func() {
+
+			By("Create namespace-scoped RolloutManager.")
+			rolloutsManager.Spec.NamespaceScoped = true
+			Expect(k8sClient.Create(ctx, &rolloutsManager)).To(Succeed())
+
+			By("Verify an error is returned.")
+			err := validateRolloutsScope(ctx, k8sClient, &rolloutsManager, namespaceScopedArgoRolloutsController)
+
+			Expect(err).To(HaveOccurred())
+			Expect(invalidRolloutScope(err)).To(BeTrue())
 		})
 	})
 })

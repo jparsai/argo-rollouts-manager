@@ -18,6 +18,7 @@ package rollouts
 
 import (
 	"context"
+	"fmt"
 
 	rolloutsmanagerv1alpha1 "github.com/argoproj-labs/argo-rollouts-manager/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -40,6 +41,10 @@ type RolloutManagerReconciler struct {
 	client.Client
 	Scheme                       *runtime.Scheme
 	OpenShiftRoutePluginLocation string
+
+	// NamespaceScopedArgoRolloutsController is used to configure scope of Argo Rollouts controller
+	// If value is true then deploy namespace scoped Argo Rollouts controller else cluster scoped
+	NamespaceScopedArgoRolloutsController bool
 }
 
 var log = logr.Log.WithName("rollouts-controller")
@@ -81,6 +86,8 @@ var log = logr.Log.WithName("rollouts-controller")
 func (r *RolloutManagerReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	reqLogger := logr.FromContext(ctx, "Request.Namespace", req.Namespace, "Request.Name", req.Name)
 	reqLogger.Info("Reconciling RolloutManager")
+
+	fmt.Println("##### NamespaceScopedArgoRolloutsController == ", r.NamespaceScopedArgoRolloutsController)
 
 	// Fetch the RolloutManager instance
 	rollouts := &rolloutsmanagerv1alpha1.RolloutManager{}
