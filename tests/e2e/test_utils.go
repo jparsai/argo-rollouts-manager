@@ -23,14 +23,23 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
+const (
+	DefaultOpenShiftRoutePluginURL = "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-openshift/releases/download/commit-2749e0ac96ba00ce6f4af19dc6d5358048227d77/rollouts-plugin-trafficrouter-openshift-linux-amd64"
+	RolloutsActiveServiceName      = "rollout-bluegreen-active"
+	RolloutsPreviewServiceName     = "rollout-bluegreen-preview"
+	RolloutsName                   = "simple-rollout"
+)
+
+// Create namespace for tests having a specific label for identification
 func CreateNamespace(ctx context.Context, k8sClient client.Client, name string) error {
 	return k8sClient.Create(ctx,
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 			Name:   name,
-			Labels: map[string]string{fixture.NamespaceLabelsKey: fixture.NamespaceLabelsValue},
+			Labels: fixture.NamespaceLabels,
 		}})
 }
 
+// Create RolloutManager CR
 func CreateRolloutManager(ctx context.Context, k8sClient client.Client, name, namespace string, namespaceScoped bool) (rmv1alpha1.RolloutManager, error) {
 	rolloutsManager := rmv1alpha1.RolloutManager{
 		ObjectMeta: metav1.ObjectMeta{
@@ -44,7 +53,8 @@ func CreateRolloutManager(ctx context.Context, k8sClient client.Client, name, na
 	return rolloutsManager, k8sClient.Create(ctx, &rolloutsManager)
 }
 
-func CreateService(ctx context.Context, k8sClient client.Client, name, namespace string, nodePort int32, selector map[string]string) (corev1.Service, error) {
+// Create Service used by Rollout
+func CreateService(ctx context.Context, k8sClient client.Client, name, namespace string, nodePort int32) (corev1.Service, error) {
 	service := corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -52,7 +62,7 @@ func CreateService(ctx context.Context, k8sClient client.Client, name, namespace
 		},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeNodePort,
-			Selector: selector,
+			Selector: fixture.NamespaceLabels,
 			Ports: []corev1.ServicePort{
 				{
 					NodePort: nodePort,
@@ -65,7 +75,8 @@ func CreateService(ctx context.Context, k8sClient client.Client, name, namespace
 	return service, k8sClient.Create(ctx, &service)
 }
 
-func CreateArgoRollout(ctx context.Context, k8sClient client.Client, name, namespace, activeService, previewService string, labels map[string]string) (rv1alpha1.Rollout, error) {
+// Create Argo Rollout CR
+func CreateArgoRollout(ctx context.Context, k8sClient client.Client, name, namespace, activeService, previewService string) (rv1alpha1.Rollout, error) {
 	var num int32 = 2
 	autoPromotionEnabled := false
 
@@ -85,11 +96,11 @@ func CreateArgoRollout(ctx context.Context, k8sClient client.Client, name, names
 			},
 			RevisionHistoryLimit: &num,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: fixture.NamespaceLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: fixture.NamespaceLabels,
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -112,6 +123,7 @@ func CreateArgoRollout(ctx context.Context, k8sClient client.Client, name, names
 	return rollout, k8sClient.Create(ctx, &rollout)
 }
 
+// Check resources created after creating of RolloutManager CR and verify that they are healthy.
 func ValidateArgoRolloutManagerResources(ctx context.Context, rolloutsManager rmv1alpha1.RolloutManager, k8sClient client.Client, namespaceScoped bool) {
 
 	By("Verify that ServiceAccount is created.")
@@ -152,19 +164,21 @@ func ValidateArgoRolloutManagerResources(ctx context.Context, rolloutsManager rm
 	validateDeployment(ctx, k8sClient, rolloutsManager)
 }
 
-func ValidateArgoRolloutsResources(ctx context.Context, k8sClient client.Client, nsName string, labels map[string]string, port1, port2 int32) {
+// Create Argo Rollout CR and Services required by it and verify that they are healthy.
+func ValidateArgoRolloutsResources(ctx context.Context, k8sClient client.Client, nsName string, port1, port2 int32) {
 
-	By("Create active and preview services in new namespace")
-	rolloutServiceActive, err := CreateService(ctx, k8sClient, "rollout-bluegreen-active", nsName, port1, labels)
+	By("Create active Services in given namespace")
+	rolloutServiceActive, err := CreateService(ctx, k8sClient, RolloutsActiveServiceName, nsName, port1)
 	Expect(err).ToNot(HaveOccurred())
 	Eventually(&rolloutServiceActive, "10s", "1s").Should(k8s.ExistByName(k8sClient))
 
-	rolloutServicePreview, err := CreateService(ctx, k8sClient, "rollout-bluegreen-preview", nsName, port2, labels)
+	By("Create preview Services in given namespace")
+	rolloutServicePreview, err := CreateService(ctx, k8sClient, RolloutsPreviewServiceName, nsName, port2)
 	Expect(err).ToNot(HaveOccurred())
 	Eventually(&rolloutServicePreview, "10s", "1s").Should(k8s.ExistByName(k8sClient))
 
-	By("Create Argo Rollout CR in new namespace and check it is reconciled successfully.")
-	rollout, err := CreateArgoRollout(ctx, k8sClient, "simple-rollout", nsName, rolloutServiceActive.Name, rolloutServicePreview.Name, labels)
+	By("Create Argo Rollout CR in given namespace and check it is reconciled successfully.")
+	rollout, err := CreateArgoRollout(ctx, k8sClient, RolloutsName, nsName, rolloutServiceActive.Name, rolloutServicePreview.Name)
 	Expect(err).ToNot(HaveOccurred())
 	Eventually(func() bool {
 		if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(&rollout), &rollout); err != nil {

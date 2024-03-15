@@ -15,9 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -32,11 +30,6 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 		rm = makeTestRolloutManager()
 	})
 
-	//
-	//
-	// todo test to allow only one CR in one namespace
-	//
-	//
 	When("NAMESPACE_SCOPED_ARGO_ROLLOUTS environment variable is set to False.", func() {
 
 		It("Should allow cluster-scoped RolloutManager CR to be reconciled and create expected resource.", func() {
@@ -110,28 +103,18 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 				rm.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
 		})
 
-		It("If a namespace-scoped RolloutManager is available in cluster, cluster-scoped RolloutManager should still work.", func() {
+		It("If a failed namespace-scoped RolloutManager is available in cluster, cluster-scoped RolloutManager should still work.", func() {
 
-			s := scheme.Scheme
-			err := rolloutsmanagerv1alpha1.AddToScheme(s)
-			Expect(err).ToNot(HaveOccurred())
-			client := fake.NewClientBuilder().WithScheme(s).Build()
-
-			By("Create cluster-scoped RolloutManager.")
-
+			By("1st RM: Create namespace-scoped RolloutManager.")
 			rm.Spec.NamespaceScoped = true
-			Expect(client.Create(ctx, rm)).To(Succeed())
 
-			By("Create cluster-scoped RolloutManager.")
-			rm2 := makeTestRolloutManager()
-
-			r := makeTestReconciler(rm2)
-			Expect(createNamespace(r, rm2.Namespace)).To(Succeed())
+			r := makeTestReconciler(rm)
+			Expect(createNamespace(r, rm.Namespace)).To(Succeed())
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name:      rm2.Name,
-					Namespace: rm2.Namespace,
+					Name:      rm.Name,
+					Namespace: rm.Namespace,
 				},
 			}
 
@@ -139,31 +122,117 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
 
-			By("Check if RolloutManager's Status.Conditions are set.")
-			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
+			By("1st RM: Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonInvalidScoped &&
+				rm.Status.Conditions[0].Message == UnsupportedRolloutManagerNamespaceScoped &&
+				rm.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
+
+			By("2dn RM: Create cluster-scoped RolloutManager.")
+			rm2 := makeTestRolloutManager()
+
+			r2 := makeTestReconciler(rm2)
+			Expect(createNamespace(r2, rm2.Namespace)).To(Succeed())
+
+			req2 := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm2.Name,
+					Namespace: rm2.Namespace,
+				},
+			}
+
+			res2, err := r2.Reconcile(ctx, req2)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res2.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("2dn RM: Check if RolloutManager's Status.Conditions are set.")
+			Expect(r2.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
 			Expect(rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
 				rm2.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
 				rm2.Status.Conditions[0].Message == "" &&
 				rm2.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
 
-			By("Check expected resources are created.")
-			validateArgoRolloutManagerResources(rm2, r.Client, false)
+			By("2dn RM: Check expected resources are created.")
+			validateArgoRolloutManagerResources(rm2, r2.Client, false)
 
-			By("Check Role and RoleBinding are not created.")
-
+			By("2dn RM: Check Role and RoleBinding are not created.")
 			role := &rbacv1.Role{}
-			err = r.Client.Get(ctx, types.NamespacedName{
+			err = r2.Client.Get(ctx, types.NamespacedName{
 				Name:      DefaultArgoRolloutsResourceName,
 				Namespace: testNamespace,
 			}, role)
 			Expect(errors.IsNotFound(err)).To(BeTrue(), "Role should not be created")
 
 			roleBinding := &rbacv1.RoleBinding{}
-			err = r.Client.Get(ctx, types.NamespacedName{
+			err = r2.Client.Get(ctx, types.NamespacedName{
 				Name:      DefaultArgoRolloutsResourceName,
 				Namespace: testNamespace,
 			}, roleBinding)
 			Expect(errors.IsNotFound(err)).To(BeTrue(), "RoleBinding should not be created")
+		})
+
+		It("should not allow more than one cluster-scoped RolloutManagers.", func() {
+
+			By("1st RM: Create 1st cluster-scoped RolloutManager.")
+			r := makeTestReconciler(rm)
+			Expect(createNamespace(r, rm.Namespace)).To(Succeed())
+
+			req := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm.Name,
+					Namespace: rm.Namespace,
+				},
+			}
+
+			res, err := r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("1st RM: Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
+				rm.Status.Conditions[0].Message == "" &&
+				rm.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
+
+			By("2nd RM: Create 2nd cluster-scoped RolloutManager and verify it failed.")
+			rm2 := makeTestRolloutManager()
+			rm2.Name = "test-rm"
+			rm2.Namespace = "test-ns"
+
+			Expect(createNamespace(r, rm2.Namespace)).To(Succeed())
+			Expect(r.Client.Create(ctx, rm2)).ToNot(HaveOccurred())
+
+			req2 := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm2.Name,
+					Namespace: rm2.Namespace,
+				},
+			}
+
+			res2, err := r.Reconcile(ctx, req2)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res2.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("2nd RM: Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
+			Expect(rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm2.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonMultipleClusterScopedRolloutManager &&
+				rm2.Status.Conditions[0].Message == UnsupportedRolloutManagerConfiguration &&
+				rm2.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
+
+			By("1st RM: Reconcile 1st RolloutManager's once again and check it is also failed.")
+			res, err = r.Reconcile(ctx, req)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("1st RM: Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonMultipleClusterScopedRolloutManager &&
+				rm.Status.Conditions[0].Message == UnsupportedRolloutManagerConfiguration &&
+				rm.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
 		})
 	})
 
@@ -201,7 +270,6 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 			validateArgoRolloutManagerResources(rm, r.Client, true)
 
 			By("Check ClusterRole and ClusterRoleBinding are not created.")
-
 			clusterRole := &rbacv1.ClusterRole{}
 			err = r.Client.Get(ctx, types.NamespacedName{
 				Name:      DefaultArgoRolloutsResourceName,
@@ -237,39 +305,23 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 
 			By("Check if RolloutManager's Status.Conditions are set.")
 			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
-
 			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
 				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonInvalidScoped &&
 				rm.Status.Conditions[0].Message == UnsupportedRolloutManagerClusterScoped &&
 				rm.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
 		})
 
-		It("If a cluster-scoped RolloutManager is available in cluster, namespace-scoped RolloutManager should still work.", func() {
+		It("If a failed cluster-scoped RolloutManager is available in cluster, namespace-scoped RolloutManager should still work.", func() {
 
-			s := scheme.Scheme
-			err := rolloutsmanagerv1alpha1.AddToScheme(s)
-			Expect(err).ToNot(HaveOccurred())
-			client := fake.NewClientBuilder().WithScheme(s).Build()
-
-			By("Create cluster-scoped RolloutManager.")
-
-			Expect(client.Create(ctx, rm)).To(Succeed())
-
-			By("Create namespace-scoped RolloutManager.")
-			rm2 := makeTestRolloutManager()
-			rm2.Name = "test-rm"
-			rm2.Namespace = "test-ns"
-			rm2.Spec.NamespaceScoped = true
-
-			r := makeTestReconciler(rm2)
+			By("1st RM: Create cluster-scoped RolloutManager.")
+			r := makeTestReconciler(rm)
 			r.NamespaceScopedArgoRolloutsController = true
-
-			Expect(createNamespace(r, rm2.Namespace)).To(Succeed())
+			Expect(createNamespace(r, rm.Namespace)).To(Succeed())
 
 			req := reconcile.Request{
 				NamespacedName: types.NamespacedName{
-					Name:      rm2.Name,
-					Namespace: rm2.Namespace,
+					Name:      rm.Name,
+					Namespace: rm.Namespace,
 				},
 			}
 
@@ -277,27 +329,55 @@ var _ = Describe("RolloutManagerReconciler tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(res.Requeue).Should(BeFalse(), "reconcile should not requeue request")
 
-			By("Check if RolloutManager's Status.Conditions are set.")
-			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
+			By("1st RM: Check if RolloutManager's Status.Conditions are set.")
+			Expect(r.Client.Get(ctx, types.NamespacedName{Name: rm.Name, Namespace: rm.Namespace}, rm)).To(Succeed())
+			Expect(rm.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
+				rm.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonInvalidScoped &&
+				rm.Status.Conditions[0].Message == UnsupportedRolloutManagerClusterScoped &&
+				rm.Status.Conditions[0].Status == metav1.ConditionFalse).To(BeTrue())
+
+			By("2nd RM: Create namespace-scoped RolloutManager.")
+			rm2 := makeTestRolloutManager()
+			rm2.Name = "test-rm"
+			rm2.Namespace = "test-ns"
+			rm2.Spec.NamespaceScoped = true
+
+			r2 := makeTestReconciler(rm2)
+			r2.NamespaceScopedArgoRolloutsController = true
+
+			Expect(createNamespace(r2, rm2.Namespace)).To(Succeed())
+
+			req2 := reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Name:      rm2.Name,
+					Namespace: rm2.Namespace,
+				},
+			}
+
+			res2, err := r2.Reconcile(ctx, req2)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res2.Requeue).Should(BeFalse(), "reconcile should not requeue request")
+
+			By("2nd RM: Check if RolloutManager's Status.Conditions are set.")
+			Expect(r2.Client.Get(ctx, types.NamespacedName{Name: rm2.Name, Namespace: rm2.Namespace}, rm2)).To(Succeed())
 			Expect(rm2.Status.Conditions[0].Type == rolloutsmanagerv1alpha1.RolloutManagerConditionType &&
 				rm2.Status.Conditions[0].Reason == rolloutsmanagerv1alpha1.RolloutManagerReasonSuccess &&
 				rm2.Status.Conditions[0].Message == "" &&
 				rm2.Status.Conditions[0].Status == metav1.ConditionTrue).To(BeTrue())
 
-			By("Check expected resources are created.")
-			validateArgoRolloutManagerResources(rm2, r.Client, true)
+			By("2nd RM: Check expected resources are created.")
+			validateArgoRolloutManagerResources(rm2, r2.Client, true)
 
-			By("Check ClusterRole and ClusterRoleBinding are not created.")
-
+			By("2nd RM: Check ClusterRole and ClusterRoleBinding are not created.")
 			clusterRole := &rbacv1.ClusterRole{}
-			err = r.Client.Get(ctx, types.NamespacedName{
+			err = r2.Client.Get(ctx, types.NamespacedName{
 				Name:      DefaultArgoRolloutsResourceName,
 				Namespace: testNamespace,
 			}, clusterRole)
 			Expect(errors.IsNotFound(err)).To(BeTrue(), "ClusterRole should not be created")
 
 			clusterRoleBinding := &rbacv1.ClusterRoleBinding{}
-			err = r.Client.Get(ctx, types.NamespacedName{
+			err = r2.Client.Get(ctx, types.NamespacedName{
 				Name:      DefaultArgoRolloutsResourceName,
 				Namespace: testNamespace,
 			}, clusterRoleBinding)
@@ -312,20 +392,20 @@ func validateArgoRolloutManagerResources(rolloutsManager *rolloutsmanagerv1alpha
 	validateServiceAccount(k8sClient, rolloutsManager)
 
 	if namespaceScoped {
-		By("Verify that argo-rollout Role is created.")
+		By("Verify that Argo-Rollout Role is created.")
 		validateArgoRolloutsRole(k8sClient, rolloutsManager)
 	} else {
-		By("Verify that argo-rollout ClusterRoles is created.")
+		By("Verify that Argo-Rollout ClusterRoles is created.")
 		validateArgoRolloutsClusterRole(k8sClient)
 	}
 
-	By("Verify that aggregate-to-admin ClusterRole is created.")
+	By("Verify that Aggregate-to-Admin ClusterRole is created.")
 	validateAggregateToAdminClusterRole(k8sClient)
 
-	By("Verify that aggregate-to-edit ClusterRole is created.")
+	By("Verify that Aggregate-to-Edit ClusterRole is created.")
 	validateAggregateToEditClusterRole(k8sClient)
 
-	By("Verify that aggregate-to-view ClusterRole is created.")
+	By("Verify that Aggregate-to-View ClusterRole is created.")
 	validateAggregateToViewClusterRole(k8sClient)
 
 	if namespaceScoped {
@@ -342,7 +422,7 @@ func validateArgoRolloutManagerResources(rolloutsManager *rolloutsmanagerv1alpha
 	By("Verify that Secret is created.")
 	validateSecret(k8sClient, rolloutsManager)
 
-	By("Verify that argo rollouts Deployment is created and it is in Ready state.")
+	By("Verify that Argo-Rollouts Deployment is created and it is in Ready state.")
 	validateDeployment(k8sClient, rolloutsManager)
 }
 

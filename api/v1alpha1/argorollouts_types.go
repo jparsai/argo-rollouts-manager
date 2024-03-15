@@ -41,7 +41,7 @@ type RolloutManagerSpec struct {
 	// Version defines Argo Rollouts controller tag (optional)
 	Version string `json:"version,omitempty"`
 
-	// NamespaceScoped lets you specify if rollouts manager has to watch a namespace or the whole cluster
+	// NamespaceScoped lets you specify if RolloutManager has to watch a namespace or the whole cluster
 	NamespaceScoped bool `json:"namespaceScoped,omitempty"`
 }
 

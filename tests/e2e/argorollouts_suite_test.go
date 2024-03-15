@@ -85,10 +85,16 @@ var _ = BeforeSuite(func() {
 	})
 	Expect(err).NotTo(HaveOccurred())
 
+	openShiftRoutePluginLocation := os.Getenv("OPENSHIFT_ROUTE_PLUGIN_LOCATION")
+
+	if openShiftRoutePluginLocation == "" {
+		openShiftRoutePluginLocation = DefaultOpenShiftRoutePluginURL
+	}
+
 	err = (&controllers.RolloutManagerReconciler{
 		Client:                                mgr.GetClient(),
 		Scheme:                                mgr.GetScheme(),
-		OpenShiftRoutePluginLocation:          "https://github.com/argoproj-labs/rollouts-plugin-trafficrouter-openshift/releases/download/commit-2749e0ac96ba00ce6f4af19dc6d5358048227d77/rollouts-plugin-trafficrouter-openshift-linux-amd64",
+		OpenShiftRoutePluginLocation:          openShiftRoutePluginLocation,
 		NamespaceScopedArgoRolloutsController: strings.ToLower(os.Getenv(controllers.NamespaceScopedArgoRolloutsController)) == "true",
 	}).SetupWithManager(mgr)
 	Expect(err).NotTo(HaveOccurred())

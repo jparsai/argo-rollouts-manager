@@ -144,9 +144,13 @@ func isMergable(extraArgs []string, cmd []string) error {
 	return nil
 }
 
+// validateRolloutsScope will check scope of Rollouts controller configured in RolloutManager and scope allowed by Admin (Configured in Subscription.Spec.Config.Env)
 func validateRolloutsScope(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager, namespaceScopedArgoRolloutsController bool) error {
+
+	// If namespace-scoped Rollouts controller is allowed according to Subscription.Spec.Config.Env value
 	if namespaceScopedArgoRolloutsController {
 
+		// if RolloutManager being reconciled will create cluster-scoped Rollouts controller, then don't allow it.
 		if !cr.Spec.NamespaceScoped {
 			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
 			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
@@ -158,9 +162,12 @@ func validateRolloutsScope(ctx context.Context, client client.Client, cr *rollou
 			return fmt.Errorf(UnsupportedRolloutManagerClusterScoped)
 		}
 
+		// allow only namespace-scoped Rollouts controller
 		return nil
-	} else {
 
+	} else { // If cluster-scoped Rollout controller is allowed according to Subscription.Spec.Config.Env value
+
+		// if RolloutManager being reconciled will create namespace-scoped Rollouts controller, then don't allow it.
 		if cr.Spec.NamespaceScoped {
 			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
 			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
@@ -172,37 +179,42 @@ func validateRolloutsScope(ctx context.Context, client client.Client, cr *rollou
 			return fmt.Errorf(UnsupportedRolloutManagerNamespaceScoped)
 		}
 
+		// allow only cluster-scoped RolloutManager
 		return nil
 	}
 }
 
-// checkForExistingRolloutManager will return error if more than one cluster scoped RolloutManagers are created or combination of a cluster and namespace scoped RolloutManagers are created.
-// because only one cluster scoped or all namespace scoped RolloutManagers are supported.
-func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager, namespaceScopedArgoRolloutsController bool) error {
+// checkForExistingRolloutManager will return error if more than one cluster-scoped RolloutManagers are created.
+// because only one cluster-scoped or all namespace-scoped RolloutManagers are supported.
+func checkForExistingRolloutManager(ctx context.Context, client client.Client, cr *rolloutsmanagerv1alpha1.RolloutManager) error {
 
+	// if it is namespace-scoped then return no error
+	// because multiple namespace-scoped RolloutManagers are allowed if validateRolloutsScope check is passed earlier.
 	if cr.Spec.NamespaceScoped {
 		return nil
 	}
 
+	// get the list of all RolloutManagers available across all namespaces
 	rolloutManagerList := rolloutsmanagerv1alpha1.RolloutManagerList{}
 	if err := client.List(ctx, &rolloutManagerList); err != nil {
 		return fmt.Errorf("failed to get the list of RolloutManager CRs from cluster: %w", err)
 	}
 
-	// if there is only one rollout manager, then check if same is being reconciled, if yes then continue the reconciling process
+	// if there is only one RolloutsManager, then check if same is being reconciled, if yes then continue the reconciling process
 	if len(rolloutManagerList.Items) == 1 && rolloutManagerList.Items[0].Name == cr.Name && rolloutManagerList.Items[0].Namespace == cr.Namespace {
 		return nil
 	}
 
-	// if there are more than one rollout managers available, then check if any cluster scoped rollout manager exists,
-	// if yes then skip reconciliation of this CR, because only one cluster scoped or all namespace scoped rollout managers are supported
+	// if there are more than one RolloutManagers available, then check if any cluster-scoped RolloutManager exists,
+	// if yes then return error for this CR, because only one cluster-scoped RolloutManagers is supported
 	for _, rolloutManager := range rolloutManagerList.Items {
 
+		// if current RolloutManager is being iterated, then skip it, because we are looking for other cluster-scoped RolloutManagers.
 		if rolloutManager.Name == cr.Name && rolloutManager.Namespace == cr.Namespace {
 			continue
 		}
 
-		// if there is a cluster scoped rollout manager then skip reconciliation of this CR and set status to pending.
+		// if there is a another cluster-scoped RolloutManager available in cluster then skip reconciliation of this one and set status to failure.
 		if !rolloutManager.Spec.NamespaceScoped {
 			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
 			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
@@ -213,7 +225,8 @@ func checkForExistingRolloutManager(ctx context.Context, client client.Client, c
 			return fmt.Errorf(UnsupportedRolloutManagerConfiguration)
 		}
 	}
-	// either there are no existing rollout managers or all are namespace scoped, so continue reconciliation of this CR
+	// either there are no existing RolloutManagers or all are namespace-scoped or only one cluster-scoped RolloutManagers exists,
+	// so continue reconciliation of this CR
 	return nil
 }
 
@@ -285,8 +298,9 @@ func updateStatusConditionOfRolloutManager(ctx context.Context, newCondition met
 
 // createCondition returns Condition based on input provided.
 // 1. Returns Success condition if no error message is provided, all fields are default.
-// 2. If Reason is provided, it returns Failed condition having all default fields except Reason.
-// 3. If Message is provided, it returns Failed condition having all default fields except Message.
+// 2. If more than 1 reasons are there then its an internal error.
+// 3. If 1 Reason is provided, it returns Failed condition having all default fields except Reason.
+// 4. If Message is provided, it returns Failed condition having all default fields except Message.
 func createCondition(message string, reason ...string) metav1.Condition {
 
 	if message == "" {
@@ -323,5 +337,4 @@ func createCondition(message string, reason ...string) metav1.Condition {
 		Message: message,
 		Status:  metav1.ConditionFalse,
 	}
-
 }
