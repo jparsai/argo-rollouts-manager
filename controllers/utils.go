@@ -7,12 +7,14 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	rolloutsmanagerv1alpha1 "github.com/argoproj-labs/argo-rollouts-manager/api/v1alpha1"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -152,10 +154,12 @@ func validateRolloutsScope(ctx context.Context, client client.Client, cr *rollou
 
 		// if RolloutManager being reconciled will create cluster-scoped Rollouts controller, then don't allow it.
 		if !cr.Spec.NamespaceScoped {
-			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
-			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
 
-			if err := client.Status().Update(ctx, cr); err != nil {
+			if err := UpdateDeploymentStatusWithFunction(ctx, client, cr, func(cr *rolloutsmanagerv1alpha1.RolloutManager) {
+
+				cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
+				cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
+			}); err != nil {
 				return fmt.Errorf("error updating the RolloutManager CR status: %w", err)
 			}
 
@@ -169,10 +173,12 @@ func validateRolloutsScope(ctx context.Context, client client.Client, cr *rollou
 
 		// if RolloutManager being reconciled will create namespace-scoped Rollouts controller, then don't allow it.
 		if cr.Spec.NamespaceScoped {
-			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
-			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
 
-			if err := client.Status().Update(ctx, cr); err != nil {
+			if err := UpdateDeploymentStatusWithFunction(ctx, client, cr, func(cr *rolloutsmanagerv1alpha1.RolloutManager) {
+
+				cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
+				cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
+			}); err != nil {
 				return fmt.Errorf("error updating the RolloutManager CR status: %w", err)
 			}
 
@@ -216,12 +222,14 @@ func checkForExistingRolloutManager(ctx context.Context, client client.Client, c
 
 		// if there is a another cluster-scoped RolloutManager available in cluster then skip reconciliation of this one and set status to failure.
 		if !rolloutManager.Spec.NamespaceScoped {
-			cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
-			cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
+			if err := UpdateDeploymentStatusWithFunction(ctx, client, cr, func(cr *rolloutsmanagerv1alpha1.RolloutManager) {
 
-			if err := client.Status().Update(ctx, cr); err != nil {
+				cr.Status.Phase = rolloutsmanagerv1alpha1.PhaseFailure
+				cr.Status.RolloutController = rolloutsmanagerv1alpha1.PhaseFailure
+			}); err != nil {
 				return fmt.Errorf("error updating the RolloutManager CR status: %w", err)
 			}
+
 			return fmt.Errorf(UnsupportedRolloutManagerConfiguration)
 		}
 	}
@@ -237,6 +245,29 @@ func multipleRolloutManagersExist(err error) bool {
 func invalidRolloutScope(err error) bool {
 	return err.Error() == UnsupportedRolloutManagerClusterScoped ||
 		err.Error() == UnsupportedRolloutManagerNamespaceScoped
+}
+
+// updateStatusConditionOfRolloutManager calls Set Condition of RolloutManager status
+func updateStatusConditionOfRolloutManager(ctx context.Context, newCondition metav1.Condition, rm *rolloutsmanagerv1alpha1.RolloutManager, k8sClient client.Client, log logr.Logger) error {
+
+	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(rm), rm); err != nil {
+		log.Error(err, "unable to fetch RolloutManager")
+		return nil
+	}
+
+	changed, newConditions := insertOrUpdateConditionsInSlice(newCondition, rm.Status.Conditions)
+
+	if changed {
+		err := UpdateDeploymentStatusWithFunction(ctx, k8sClient, rm, func(rm *rolloutsmanagerv1alpha1.RolloutManager) {
+			rm.Status.Conditions = newConditions
+		})
+
+		if err != nil {
+			log.Error(err, "unable to update RolloutManager status condition")
+			return err
+		}
+	}
+	return nil
 }
 
 // insertOrUpdateConditionsInSlice is a generic function for inserting/updating metav1.Condition into a slice of []metav1.Condition
@@ -275,25 +306,27 @@ func insertOrUpdateConditionsInSlice(newCondition metav1.Condition, existingCond
 
 }
 
-// updateStatusConditionOfRolloutManager calls SetCondition() with RolloutManager conditions
-func updateStatusConditionOfRolloutManager(ctx context.Context, newCondition metav1.Condition, rm *rolloutsmanagerv1alpha1.RolloutManager, k8sClient client.Client, log logr.Logger) error {
+func UpdateDeploymentStatusWithFunction(ctx context.Context, k8sClient client.Client, rm *rolloutsmanagerv1alpha1.RolloutManager,
+	mutationFn func(*rolloutsmanagerv1alpha1.RolloutManager)) error {
 
-	if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(rm), rm); err != nil {
-		log.Error(err, "unable to fetch RolloutManager")
-		return nil
-	}
+	return untilSuccess(k8sClient, func(k8sClient client.Client) error {
 
-	changed, newConditions := insertOrUpdateConditionsInSlice(newCondition, rm.Status.Conditions)
-
-	if changed {
-		rm.Status.Conditions = newConditions
-
-		if err := k8sClient.Status().Update(ctx, rm); err != nil {
-			log.Error(err, "unable to update RolloutManager status condition")
+		// Retrieve the latest version of the RolloutManager resource
+		err := k8sClient.Get(ctx, client.ObjectKeyFromObject(rm), rm)
+		if err != nil {
 			return err
 		}
-	}
-	return nil
+
+		// Call the mutation function, to change the RolloutManager
+		mutationFn(rm)
+
+		// Attempt to update the object with the change made by the mutation function
+		err = k8sClient.Status().Update(ctx, rm)
+
+		// Report back the error, if we hit one
+		return err
+	})
+
 }
 
 // createCondition returns Condition based on input provided.
@@ -337,4 +370,15 @@ func createCondition(message string, reason ...string) metav1.Condition {
 		Message: message,
 		Status:  metav1.ConditionFalse,
 	}
+}
+
+// UntilSuccess will keep trying a K8s operation until it succeeds, or times out.
+func untilSuccess(k8sClient client.Client, f func(k8sClient client.Client) error) error {
+
+	err := wait.PollImmediate(time.Second*1, time.Minute*2, func() (done bool, err error) {
+		funcError := f(k8sClient)
+		return funcError == nil, nil
+	})
+
+	return err
 }
