@@ -83,7 +83,8 @@ func (cleaner *Cleaner) ensureRlloutNamespaceExists(namespaceParam string) error
 	}
 
 	namespaceToCreate := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-		Name: namespaceParam,
+		Name:   namespaceParam,
+		Labels: NamespaceLabels,
 	}}
 
 	if err := cleaner.k8sClient.Create(cleaner.cxt, &namespaceToCreate); err != nil {

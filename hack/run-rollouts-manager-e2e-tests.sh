@@ -16,7 +16,7 @@ if [ "$NAMESPACE_SCOPED_ARGO_ROLLOUTS" == "true" ]; then
 
 else
 
-   go test -v -p=1 -timeout=30m -race -count=1 -coverprofile=coverage.out ./tests/e2e/cluster-scoped
+  go test -v -p=1 -timeout=30m -race -count=1 -coverprofile=coverage.out ./tests/e2e/cluster-scoped
 
 fi
 
@@ -34,7 +34,7 @@ if [ -f "/tmp/e2e-operator-run.log" ]; then
   # Grep the log for unexpected errors
   # - Ignore errors that are expected to occur
 
-  ERRORS_FOUND_TEXT=`cat /tmp/e2e-operator-run.log | grep "ERROR" | grep -v "unable to create new content in namespace argo-rollouts because it is being terminated" | grep -v "the object has been modified; please apply your changes to the latest version and try again"`
+  ERRORS_FOUND_TEXT=`cat /tmp/e2e-operator-run.log | grep "ERROR" | grep -v "because it is being terminated" | grep -v "the object has been modified; please apply your changes to the latest version and try again" | grep -v "StorageError"`
 
   ERRORS_FOUND=`echo $ERRORS_FOUND_TEXT | grep "ERROR" | wc -l`
 

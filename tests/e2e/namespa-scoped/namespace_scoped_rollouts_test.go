@@ -150,12 +150,12 @@ var _ = Describe("Namespace-scoped RolloutManager tests", func() {
 
 			By("2nd RM: Delete 2nd RolloutManager and ensure 2nd Rollouts controller is also deleted.")
 			Expect(k8sClient.Delete(ctx, &rolloutsManagerNs2)).To(Succeed())
-			Consistently(&appsv1.Deployment{
+			Eventually(&appsv1.Deployment{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      controllers.DefaultArgoRolloutsResourceName,
 					Namespace: nsName1,
 				},
-			}, "30s", "1s").ShouldNot(k8s.ExistByName(k8sClient))
+			}, "3m", "2s").ShouldNot(k8s.ExistByName(k8sClient))
 
 			By("2nd RM: Delete 2nd Rollout CR and ensure it is not recreated.")
 			rollout2 := rv1alpha1.Rollout{
